@@ -9,6 +9,7 @@ import 'package:resqlite/src/writer/writer.dart';
 
 import 'diagnostics.dart';
 import 'exceptions.dart';
+import 'native/native_library.dart';
 import 'native/resqlite_bindings.dart';
 import 'reader/reader_pool.dart';
 import 'stream_engine.dart';
@@ -111,6 +112,14 @@ final class Database {
   /// The returned [Database] must be closed with [close] when no longer
   /// needed to release native resources.
   static Future<Database> open(String path, {String? encryptionKey}) async {
+    if (!isInstalled) {
+      throw ResqliteConnectionException(
+        'Resqlite native library not loaded. '
+        'Call resqlite.install(path) before Database.open, or run '
+        'dart run tool/build_native.dart in the resqlite package.',
+      );
+    }
+
     final pathNative = path.toNativeUtf8();
     final keyNative = encryptionKey != null
         ? encryptionKey.toNativeUtf8()
