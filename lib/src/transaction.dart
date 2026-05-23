@@ -77,7 +77,7 @@ final class Transaction {
   ///
   /// Throws [StateError] if called after the enclosing transaction body
   /// has returned.
-  Future<List<Map<String, Object?>>> select(
+  Future<ResultSet> select(
     String sql, [
     List<Object?> parameters = const [],
   ]) async {

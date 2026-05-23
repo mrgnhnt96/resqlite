@@ -15,11 +15,11 @@ import 'package:ffi/ffi.dart';
 
 import '../dependency_tracking.dart';
 import '../exceptions.dart';
+import '../native/native_library.dart';
 import '../native/request_cache.dart';
 import '../native/resqlite_bindings.dart';
 import '../profile_mode.dart';
 import '../query_decoder.dart';
-import '../row.dart';
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -145,9 +145,16 @@ final class _WriterState {
   int txDepth = 0;
 }
 
-void writerEntrypoint(List<Object> args) {
+void writerEntrypoint(List<Object?> args) {
   final mainPort = args[0] as SendPort;
   final dbHandleAddr = args[1] as int;
+  if (args.length > 2 && args[2] is String) {
+    install(args[2] as String);
+  } else if (!isInstalled) {
+    throw StateError(
+      'resqlite native library not installed in writer worker isolate',
+    );
+  }
 
   final state = _WriterState(
     dbHandle: ffi.Pointer<ffi.Void>.fromAddress(dbHandleAddr),
@@ -260,13 +267,8 @@ void _handleTxQuery(_WriterState state, QueryRequest msg) {
       );
     }
     final raw = decodeQuery(stmt, msg.sql);
-    msg.replyPort.send(
-      QueryResponse(ResultSet(raw.values, raw.schema, raw.rowCount)),
-    );
+    msg.replyPort.send(QueryResponse(materializeQueryRows(raw)));
   } finally {
-    // Both resources are freed in one finally regardless of which line
-    // threw — an earlier version of this function had a paired try/finally
-    // that leaked `paramsNative` when stmt acquisition failed.
     freeParams(paramsNative, msg.params);
   }
 }

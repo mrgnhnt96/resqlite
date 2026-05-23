@@ -11,8 +11,10 @@ import 'dart:typed_data';
 
 import '../dependency_tracking.dart' show TableDependencies;
 import '../exceptions.dart';
+import '../native/native_library.dart';
 import '../profile_counters.dart';
 import '../profile_mode.dart';
+import '../row.dart';
 import 'read_worker.dart';
 
 /// A pool of persistent reader isolates with automatic replacement.
@@ -66,12 +68,14 @@ final class ReaderPool {
   }
 
   /// Execute a query on the next available worker.
-  Future<List<Map<String, Object?>>> select(
+  Future<ResultSet> select(
     String sql, [
     List<Object?> parameters = const [],
   ]) async {
     final result = await _dispatch(SelectRequest(sql, parameters));
-    return result as List<Map<String, Object?>>;
+    return resultSetFromMaterializedRows(
+      result as List<Map<String, Object?>>,
+    );
   }
 
   /// Execute a query and capture read dependencies.
@@ -84,10 +88,19 @@ final class ReaderPool {
   /// short-circuit against.
   /// [EXP-106](../../../experiments/106-column-level-deps.md) nests optional
   /// column detail under each table dependency.
-  Future<(List<Map<String, Object?>>, TableDependencies, int, int)>
-  selectWithDeps(String sql, [List<Object?> parameters = const []]) async {
+  Future<(ResultSet, TableDependencies, int, int)> selectWithDeps(
+    String sql, [
+    List<Object?> parameters = const [],
+  ]) async {
     final result = await _dispatch(SelectWithDepsRequest(sql, parameters));
-    return result as (List<Map<String, Object?>>, TableDependencies, int, int);
+    final (rows, dependencies, initialHash, initialRowCount) =
+        result as (List<Map<String, Object?>>, TableDependencies, int, int);
+    return (
+      resultSetFromMaterializedRows(rows),
+      dependencies,
+      initialHash,
+      initialRowCount,
+    );
   }
 
   /// Execute a query returning JSON-encoded bytes.
@@ -102,7 +115,7 @@ final class ReaderPool {
   /// Execute a re-query with worker-side hash comparison.
   /// Returns `(rows, newHash, newRowCount)` — `rows` is null when the
   /// result is unchanged (hash AND row count match).
-  Future<(List<Map<String, Object?>>?, int, int)> selectIfChanged(
+  Future<(ResultSet?, int, int)> selectIfChanged(
     String sql,
     List<Object?> parameters,
     int lastResultHash,
@@ -111,7 +124,13 @@ final class ReaderPool {
     final result = await _dispatch(
       SelectIfChangedRequest(sql, parameters, lastResultHash, lastRowCount),
     );
-    return result as (List<Map<String, Object?>>?, int, int);
+    final (rows, newHash, newRowCount) =
+        result as (List<Map<String, Object?>>?, int, int);
+    return (
+      rows == null ? null : resultSetFromMaterializedRows(rows),
+      newHash,
+      newRowCount,
+    );
   }
 
   Future<Object?> _dispatch(ReadRequest request) async {
@@ -323,6 +342,7 @@ class _WorkerSlot {
       dbHandleAddr,
       _readerId,
       workerPort.sendPort,
+      installedLibraryPath,
     ], onExit: workerPort.sendPort);
 
     _sendPort = await completer.future;

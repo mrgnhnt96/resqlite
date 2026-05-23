@@ -279,7 +279,15 @@ void main() {
       const sql = 'SELECT tag FROM t WHERE tag = ? AND payload = ?';
       for (var i = 0; i < 10; i++) {
         final rows = await db.select(sql, ['target', blob]);
-        expect(rows, hasLength(1), reason: 'iteration $i');
+        expect(rows, hasLength(1), reason: 'reader iteration $i');
+        expect(rows[0]['tag'], 'target');
+      }
+
+      for (var i = 0; i < 10; i++) {
+        final rows = await db.transaction(
+          (tx) => tx.select(sql, ['target', blob]),
+        );
+        expect(rows, hasLength(1), reason: 'writer iteration $i');
         expect(rows[0]['tag'], 'target');
       }
     });
@@ -879,6 +887,26 @@ void main() {
       expect(rows[1]['label'], 'émojis 🎉🚀');
     });
 
+    test('rapid concurrent cached selects and writes', () async {
+      await db.execute(
+        'CREATE TABLE t(id INTEGER PRIMARY KEY, name TEXT NOT NULL)',
+      );
+      await db.executeBatch('INSERT INTO t(name) VALUES (?)', [
+        for (var i = 0; i < 20; i++) ['row_$i'],
+      ]);
+
+      for (var round = 0; round < 5; round++) {
+        await Future.wait([
+          for (var i = 0; i < 20; i++)
+            db.select('SELECT * FROM t WHERE name = ?', ['row_$i']),
+          db.transaction(
+            (tx) => tx.select('SELECT COUNT(*) as cnt FROM t'),
+          ),
+          db.execute('INSERT INTO t(name) VALUES (?)', ['extra_$round']),
+        ]);
+      }
+    });
+
     // ----- Concurrent reads + writes -----
 
     test('reads work during sequential writes', () async {
@@ -915,7 +943,7 @@ void main() {
 
       // Reads should return valid results (exact count depends on timing).
       for (final r in results) {
-        if (r is List<Map<String, Object?>>) {
+        if (r is ResultSet) {
           final cnt = r[0]['cnt'] as int;
           expect(cnt, greaterThanOrEqualTo(100));
         }

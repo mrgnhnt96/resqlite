@@ -1,5 +1,21 @@
 import 'dart:collection';
 
+/// Builds a [ResultSet] on the receiving isolate from materialized row maps.
+ResultSet resultSetFromMaterializedRows(List<Map<String, Object?>> maps) {
+  if (maps.isEmpty) {
+    return ResultSet(const [], RowSchema(const []), 0);
+  }
+
+  final columns = maps.first.keys.toList(growable: false);
+  final values = <Object?>[];
+  for (final map in maps) {
+    for (final column in columns) {
+      values.add(map[column]);
+    }
+  }
+  return ResultSet(values, RowSchema(List<String>.from(columns)), maps.length);
+}
+
 /// Column metadata shared across all rows in a [ResultSet].
 ///
 /// Created once per query and reused by every [Row]. Contains the column
@@ -42,6 +58,33 @@ final class ResultSet with ListMixin<Row> {
   final RowSchema _schema;
   final int _rowCount;
 
+  /// Column names in query order. Empty when the result has no columns.
+  List<String> get columnNames => _schema.names;
+
+  /// Number of columns per row.
+  int get _columnCount => _schema.columnCount != 0
+      ? _schema.columnCount
+      : _rowCount == 0
+      ? 0
+      : _values.length ~/ _rowCount;
+
+  /// All rows as positional value lists.
+  List<List<Object?>> toPositionalRows() {
+    final colCount = _columnCount;
+    if (colCount == 0 || _rowCount == 0) return const [];
+
+    final rows = <List<Object?>>[];
+    for (var r = 0; r < _rowCount; r++) {
+      final offset = r * colCount;
+      rows.add(List<Object?>.generate(
+        colCount,
+        (c) => _values[offset + c],
+        growable: false,
+      ));
+    }
+    return rows;
+  }
+
   @override
   int get length => _rowCount;
 
@@ -51,7 +94,7 @@ final class ResultSet with ListMixin<Row> {
   @override
   Row operator [](int index) {
     RangeError.checkValidIndex(index, this);
-    return Row._(_values, _schema, index * _schema.columnCount);
+    return Row._(_values, _schema, index * _columnCount);
   }
 
   @override

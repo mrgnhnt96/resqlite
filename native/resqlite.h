@@ -47,6 +47,8 @@ typedef struct {
 resqlite_db* resqlite_open(const char* path, int max_readers, const char* encryption_key_hex);
 void resqlite_close(resqlite_db* db);
 const char* resqlite_errmsg(resqlite_db* db);
+const char* resqlite_reader_errmsg(resqlite_db* db, int reader_id);
+int resqlite_reader_last_error(resqlite_db* db, int reader_id);
 
 // Get the raw sqlite3* writer connection handle (for direct FFI calls).
 sqlite3* resqlite_writer_handle(resqlite_db* db);
@@ -247,7 +249,8 @@ sqlite3_stmt* resqlite_stmt_acquire_on(
     int reader_id,
     const char* sql,
     const resqlite_param* params,
-    int param_count
+    int param_count,
+    int* out_rc
 );
 
 // Writer variant — no mutex. Caller (writer isolate) guarantees exclusive access.
@@ -284,10 +287,26 @@ typedef struct {
     };
 } resqlite_cell;         // 16 bytes total
 
+int resqlite_effective_column_count(sqlite3_stmt* stmt);
+const char* resqlite_column_name(sqlite3_stmt* stmt, int col);
+
+int resqlite_read_current_row(
+    sqlite3_stmt* stmt,
+    int col_count,
+    resqlite_cell* cells
+);
+
 int resqlite_step_row(
     sqlite3_stmt* stmt,
     int col_count,
     resqlite_cell* cells
+);
+
+int resqlite_read_current_row_hash(
+    sqlite3_stmt* stmt,
+    int col_count,
+    resqlite_cell* cells,
+    uint64_t* hash
 );
 
 int resqlite_step_row_hash(

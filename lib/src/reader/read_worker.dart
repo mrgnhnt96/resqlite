@@ -15,6 +15,7 @@ import 'package:ffi/ffi.dart';
 
 import '../dependency_tracking.dart';
 import '../exceptions.dart';
+import '../native/native_library.dart';
 import '../native/request_cache.dart';
 import '../native/resqlite_bindings.dart';
 import '../profile_mode.dart';
@@ -80,11 +81,18 @@ const int sacrificeByteThreshold = 256 * 1024; // 256 KB
 // ---------------------------------------------------------------------------
 
 /// Worker entrypoint args:
-///   [int dbHandleAddr, int readerId, SendPort eventPort]
-void readerEntrypoint(List<Object> args) {
+///   [int dbHandleAddr, int readerId, SendPort eventPort, String? libPath]
+void readerEntrypoint(List<Object?> args) {
   final dbHandleAddr = args[0] as int;
   final readerId = args[1] as int;
   final eventPort = args[2] as SendPort;
+  if (args.length > 3 && args[3] is String) {
+    install(args[3] as String);
+  } else if (!isInstalled) {
+    throw StateError(
+      'resqlite native library not installed in reader worker isolate',
+    );
+  }
 
   final receivePort = RawReceivePort();
   eventPort.send(receivePort.sendPort);
@@ -205,14 +213,16 @@ void readerEntrypoint(List<Object> args) {
     ffi.Pointer<ffi.Void>,
     ffi.Pointer<ffi.Uint8>,
     ffi.Int,
+    ffi.Pointer<ffi.Int32>,
   )
->(symbol: 'resqlite_stmt_acquire_on', isLeaf: true)
+>(symbol: 'resqlite_stmt_acquire_on')
 external ffi.Pointer<ffi.Void> _resqliteStmtAcquireOn(
   ffi.Pointer<ffi.Void> db,
   int readerId,
   ffi.Pointer<ffi.Void> sql,
   ffi.Pointer<ffi.Uint8> params,
   int paramCount,
+  ffi.Pointer<ffi.Int32> outRc,
 );
 
 // ---------------------------------------------------------------------------
@@ -224,8 +234,7 @@ external ffi.Pointer<ffi.Void> _resqliteStmtAcquireOn(
 /// The cast is a type-system formality — `ResultSet implements List<Row>`
 /// and `Row implements Map<String, Object?>`, so it's always safe.
 List<Map<String, Object?>> _toRows(RawQueryResult raw) =>
-    ResultSet(raw.values, raw.schema, raw.rowCount)
-        as List<Map<String, Object?>>;
+    materializeQueryRows(raw);
 
 /// Acquire the stmt on the dedicated reader, run `body`, and release
 /// native params + SQL buffer. All `executeQuery*` helpers below share
@@ -241,6 +250,7 @@ T _withAcquiredStmt<T>(
   final dbHandle = ffi.Pointer<ffi.Void>.fromAddress(handleAddr);
   final sqlNative = cachedSqlUtf8(sql);
   final paramsNative = allocateParams(parameters);
+  final outRc = calloc<ffi.Int32>();
   try {
     final stmt = _resqliteStmtAcquireOn(
       dbHandle,
@@ -248,16 +258,20 @@ T _withAcquiredStmt<T>(
       sqlNative.cast(),
       paramsNative,
       parameters.length,
+      outRc,
     );
     if (stmt == ffi.nullptr) {
-      throw ResqliteQueryException(
-        resqliteErrmsg(dbHandle).toDartString(),
+      throwReaderQueryException(
+        dbHandle: dbHandle,
+        readerId: readerId,
+        sqliteCode: outRc.value,
         sql: sql,
         parameters: parameters,
       );
     }
     return body(dbHandle, stmt);
   } finally {
+    calloc.free(outRc);
     freeParams(paramsNative, parameters);
   }
 }

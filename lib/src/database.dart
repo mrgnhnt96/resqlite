@@ -12,6 +12,7 @@ import 'exceptions.dart';
 import 'native/native_library.dart';
 import 'native/resqlite_bindings.dart';
 import 'reader/reader_pool.dart';
+import 'row.dart';
 import 'stream_engine.dart';
 
 /// A high-performance SQLite database with reactive queries.
@@ -215,7 +216,7 @@ final class Database {
   ///
   /// - [selectBytes], for JSON-encoded results without Dart object allocation
   /// - [stream], for reactive queries that re-emit on writes
-  Future<List<Map<String, Object?>>> select(
+  Future<ResultSet> select(
     String sql, [
     List<Object?> parameters = const [],
   ]) async {
@@ -311,7 +312,7 @@ final class Database {
   ///
   /// Create streams once and reuse them (e.g., as `late final` fields in
   /// a `State` class), rather than creating new streams on every build.
-  Stream<List<Map<String, Object?>>> stream(
+  Stream<ResultSet> stream(
     String sql, [
     List<Object?> parameters = const [],
   ]) {

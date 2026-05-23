@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:resqlite/resqlite.dart';
 import 'package:resqlite/src/mutex.dart';
+import 'package:resqlite/src/native/native_library.dart';
 import 'package:resqlite/src/native/resqlite_bindings.dart';
 import 'package:resqlite/src/writer/write_worker.dart';
 
@@ -40,7 +41,11 @@ final class Writer {
       }
     });
 
-    Isolate.spawn(writerEntrypoint, [receivePort.sendPort, handle.address]);
+    Isolate.spawn(writerEntrypoint, [
+      receivePort.sendPort,
+      handle.address,
+      installedLibraryPath,
+    ]);
 
     await writer._workerPort.future;
 
@@ -105,14 +110,14 @@ final class Writer {
     );
   }
 
-  Future<List<Map<String, Object?>>> select(
+  Future<ResultSet> select(
     String sql, [
     List<Object?> parameters = const [],
   ]) async {
     final response = await _request<QueryResponse>(
       (replyPort) => QueryRequest(sql, parameters, replyPort),
     );
-    return response.rows;
+    return resultSetFromMaterializedRows(response.rows);
   }
 
   /// Runs a transaction. Used by both [Database.transaction] and [Transaction.transaction].

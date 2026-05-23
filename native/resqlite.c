@@ -286,6 +286,7 @@ typedef struct {
     resqlite_authz_ctx authz_ctx;
     resqlite_buf json_buf;  // persistent buffer for resqlite_query_bytes
     int in_use;
+    int last_error;  // most recent acquire/prepare/bind failure on this reader
 } resqlite_reader;
 
 // ---------------------------------------------------------------------------
@@ -648,6 +649,7 @@ resqlite_db* resqlite_open(const char* path, int max_readers,
             continue;
         }
         db->readers[idx].in_use = 0;
+        db->readers[idx].last_error = SQLITE_OK;
 
         // Install authorizer to capture read dependencies (table + column).
         // The context lives inline on the reader so its address is stable
@@ -705,6 +707,30 @@ const char* resqlite_errmsg(resqlite_db* db) {
         return "database not open";
     }
     return sqlite3_errmsg(db->writer);
+}
+
+const char* resqlite_reader_errmsg(resqlite_db* db, int reader_id) {
+    if (!db || atomic_load_explicit(&db->closed, memory_order_acquire)) {
+        return "database not open";
+    }
+    if (reader_id < 0 || reader_id >= db->reader_count) {
+        return "invalid reader id";
+    }
+    sqlite3* reader = db->readers[reader_id].db;
+    if (!reader) {
+        return "reader not open";
+    }
+    return sqlite3_errmsg(reader);
+}
+
+int resqlite_reader_last_error(resqlite_db* db, int reader_id) {
+    if (!db || atomic_load_explicit(&db->closed, memory_order_acquire)) {
+        return SQLITE_MISUSE;
+    }
+    if (reader_id < 0 || reader_id >= db->reader_count) {
+        return SQLITE_MISUSE;
+    }
+    return db->readers[reader_id].last_error;
 }
 
 sqlite3* resqlite_writer_handle(resqlite_db* db) {
@@ -1303,16 +1329,20 @@ static int bind_params(sqlite3_stmt* stmt, const resqlite_param* params,
                 rc = sqlite3_bind_double(stmt, idx, params[i].float_val);
                 break;
             case RESQLITE_TYPE_TEXT:
+                // TRANSIENT: Dart frees the param buffer as soon as the
+                // acquire call returns, before the cached stmt is reset on
+                // the next cache hit. STATIC would leave dangling pointers
+                // that sqlite3_reset dereferences on reuse.
                 rc = sqlite3_bind_text(stmt, idx,
                                        params[i].text.data,
                                        params[i].text.len,
-                                       SQLITE_STATIC);
+                                       SQLITE_TRANSIENT);
                 break;
             case RESQLITE_TYPE_BLOB:
                 rc = sqlite3_bind_blob64(stmt, idx,
                                           params[i].blob.data,
                                           params[i].blob.len,
-                                          SQLITE_STATIC);
+                                          SQLITE_TRANSIENT);
                 break;
             default:
                 rc = sqlite3_bind_null(stmt, idx);
@@ -1381,21 +1411,41 @@ sqlite3_stmt* resqlite_stmt_acquire_on(
     int reader_id,
     const char* sql,
     const resqlite_param* params,
-    int param_count
+    int param_count,
+    int* out_rc
 ) {
-    if (!db || atomic_load_explicit(&db->closed, memory_order_acquire)) return NULL;
-    if (reader_id < 0 || reader_id >= db->reader_count) return NULL;
+    if (out_rc) *out_rc = SQLITE_OK;
+    if (!db || atomic_load_explicit(&db->closed, memory_order_acquire)) {
+        if (out_rc) *out_rc = SQLITE_MISUSE;
+        return NULL;
+    }
+    if (reader_id < 0 || reader_id >= db->reader_count) {
+        if (out_rc) *out_rc = SQLITE_MISUSE;
+        return NULL;
+    }
     resqlite_reader* reader = &db->readers[reader_id];
+    if (!reader->db) {
+        reader->last_error = SQLITE_MISUSE;
+        if (out_rc) *out_rc = SQLITE_MISUSE;
+        return NULL;
+    }
+    reader->last_error = SQLITE_OK;
 
     int rc;
     resqlite_cached_stmt* entry =
         get_or_prepare_reader(reader, sql, (int)strlen(sql), &rc);
-    if (!entry) return NULL;
+    if (!entry) {
+        reader->last_error = rc;
+        if (out_rc) *out_rc = rc;
+        return NULL;
+    }
     sqlite3_stmt* stmt = entry->stmt;
 
     rc = bind_params(stmt, params, param_count, entry->param_count);
     if (rc != SQLITE_OK) {
         sqlite3_reset(stmt);
+        reader->last_error = rc;
+        if (out_rc) *out_rc = rc;
         return NULL;
     }
 
@@ -1762,14 +1812,21 @@ int resqlite_query_bytes(
 // Batch row reader
 // ---------------------------------------------------------------------------
 
-__attribute__((hot)) int resqlite_step_row(
+static int resqlite_resolve_col_count(sqlite3_stmt* stmt, int col_count) {
+    // Prefer the connection's authoritative count — Dart may pass a stale or
+    // zero col_count (probe path) and fill_cells must never write past the
+    // caller's cell buffer.
+    int actual = sqlite3_column_count(stmt);
+    if (actual > 0) return actual;
+    if (col_count > 0) return col_count;
+    return sqlite3_data_count(stmt);
+}
+
+static void resqlite_fill_cells(
     sqlite3_stmt* stmt,
     int col_count,
     resqlite_cell* cells
 ) {
-    int rc = sqlite3_step(stmt);
-    if (__builtin_expect(rc != SQLITE_ROW, 0)) return rc;
-
     for (int i = 0; i < col_count; i++) {
         int type = sqlite3_column_type(stmt, i);
         cells[i].type = type;
@@ -1789,9 +1846,43 @@ __attribute__((hot)) int resqlite_step_row(
                 cells[i].len = sqlite3_column_bytes(stmt, i);
                 break;
             default:
-                // SQLITE_NULL or unknown
                 break;
         }
+    }
+}
+
+int resqlite_effective_column_count(sqlite3_stmt* stmt) {
+    return resqlite_resolve_col_count(stmt, 0);
+}
+
+const char* resqlite_column_name(sqlite3_stmt* stmt, int col) {
+    return sqlite3_column_name(stmt, col);
+}
+
+__attribute__((hot)) int resqlite_read_current_row(
+    sqlite3_stmt* stmt,
+    int col_count,
+    resqlite_cell* cells
+) {
+    if (sqlite3_data_count(stmt) <= 0) return SQLITE_DONE;
+    if (cells) {
+        resqlite_fill_cells(stmt, resqlite_resolve_col_count(stmt, col_count),
+                            cells);
+    }
+    return SQLITE_ROW;
+}
+
+__attribute__((hot)) int resqlite_step_row(
+    sqlite3_stmt* stmt,
+    int col_count,
+    resqlite_cell* cells
+) {
+    int rc = sqlite3_step(stmt);
+    if (__builtin_expect(rc != SQLITE_ROW, 0)) return rc;
+
+    if (cells) {
+        resqlite_fill_cells(stmt, resqlite_resolve_col_count(stmt, col_count),
+                            cells);
     }
 
     return SQLITE_ROW;
@@ -1949,6 +2040,60 @@ long long resqlite_query_hash(
     return (long long)h;
 }
 
+__attribute__((hot)) int resqlite_read_current_row_hash(
+    sqlite3_stmt* stmt,
+    int col_count,
+    resqlite_cell* cells,
+    uint64_t* hash
+) {
+    if (sqlite3_data_count(stmt) <= 0) return SQLITE_DONE;
+
+    col_count = resqlite_resolve_col_count(stmt, col_count);
+    uint64_t h = *hash;
+    for (int i = 0; i < col_count; i++) {
+        int type = sqlite3_column_type(stmt, i);
+        cells[i].type = type;
+        h = fnv_combine_u64(h, (uint64_t)type);
+        switch (type) {
+            case SQLITE_INTEGER: {
+                sqlite3_int64 v = sqlite3_column_int64(stmt, i);
+                cells[i].i = v;
+                h = fnv_combine_u64(h, (uint64_t)v);
+                break;
+            }
+            case SQLITE_FLOAT: {
+                double d = sqlite3_column_double(stmt, i);
+                uint64_t bits; memcpy(&bits, &d, 8);
+                cells[i].d = d;
+                h = fnv_combine_u64(h, bits);
+                break;
+            }
+            case SQLITE_TEXT: {
+                const unsigned char* p = sqlite3_column_text(stmt, i);
+                int len = sqlite3_column_bytes(stmt, i);
+                cells[i].p = p;
+                cells[i].len = len;
+                h = fnv_combine_u64(h, (uint64_t)len);
+                h = fnv_combine_bytes(h, p, len);
+                break;
+            }
+            case SQLITE_BLOB: {
+                const void* p = sqlite3_column_blob(stmt, i);
+                int len = sqlite3_column_bytes(stmt, i);
+                cells[i].p = p;
+                cells[i].len = len;
+                h = fnv_combine_u64(h, (uint64_t)len);
+                h = fnv_combine_bytes(h, p, len);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    *hash = h;
+    return SQLITE_ROW;
+}
+
 __attribute__((hot)) int resqlite_step_row_hash(
     sqlite3_stmt* stmt,
     int col_count,
@@ -1958,6 +2103,7 @@ __attribute__((hot)) int resqlite_step_row_hash(
     int rc = sqlite3_step(stmt);
     if (__builtin_expect(rc != SQLITE_ROW, 0)) return rc;
 
+    col_count = resqlite_resolve_col_count(stmt, col_count);
     uint64_t h = *hash;
     for (int i = 0; i < col_count; i++) {
         int type = sqlite3_column_type(stmt, i);

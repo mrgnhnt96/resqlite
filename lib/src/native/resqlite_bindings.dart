@@ -9,6 +9,7 @@ import 'package:ffi/ffi.dart';
 
 import '../dependency_tracking.dart';
 import '../exceptions.dart';
+import 'native_library.dart';
 import 'request_cache.dart';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,26 @@ external void resqliteClose(ffi.Pointer<ffi.Void> db);
   isLeaf: true,
 )
 external ffi.Pointer<Utf8> resqliteErrmsg(ffi.Pointer<ffi.Void> db);
+
+Never throwReaderQueryException({
+  required ffi.Pointer<ffi.Void> dbHandle,
+  required int readerId,
+  required int sqliteCode,
+  required String sql,
+  List<Object?>? parameters,
+}) {
+  final message = readerErrmsg(dbHandle, readerId);
+  final code = switch (sqliteCode) {
+    0 => readerLastError(dbHandle, readerId),
+    _ => sqliteCode,
+  };
+  throw ResqliteQueryException(
+    message,
+    sql: sql,
+    parameters: parameters,
+    sqliteCode: code == 0 ? null : code,
+  );
+}
 
 @ffi.Native<ffi.Int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>)>(
   symbol: 'resqlite_exec',
@@ -1058,11 +1079,12 @@ NativeBuffer queryBytes(
       // which is owned by the C connection pool. The C code sets it to
       // NULL on error anyway, but even if it didn't, freeing it would
       // corrupt the reader's buffer for future queries.
-      throw ResqliteQueryException(
-        'resqlite_query_bytes failed with code $rc',
+      throwReaderQueryException(
+        dbHandle: dbHandle,
+        readerId: readerId,
+        sqliteCode: rc,
         sql: sql,
         parameters: params,
-        sqliteCode: rc,
       );
     }
     return (ptr: pBuf.value, length: pLen.value);

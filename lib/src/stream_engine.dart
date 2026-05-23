@@ -12,6 +12,7 @@ import 'extensions/set.dart';
 import 'profile_counters.dart';
 import 'profile_mode.dart';
 import 'reader/reader_pool.dart';
+import 'row.dart';
 
 // ---------------------------------------------------------------------------
 // Stream dependency tracking contract
@@ -79,7 +80,7 @@ final class StreamEngine {
   /// Streams are deduplicated: multiple calls with the same SQL and params
   /// share a single underlying query. New listeners receive the cached
   /// result immediately.
-  Stream<List<Map<String, Object?>>> stream(
+  Stream<ResultSet> stream(
     String sql, [
     List<Object?> parameters = const [],
   ]) {
@@ -210,7 +211,7 @@ final class StreamEngine {
   /// eliminating the race condition where async* generators + broadcast
   /// controllers silently drop events during microtask gaps.
   ///
-  Stream<List<Map<String, Object?>>> _createStream(
+  Stream<ResultSet> _createStream(
     int key,
     String sql,
     List<Object?> params,
@@ -323,8 +324,8 @@ final class StreamEngine {
   /// Add a subscriber controller to a stream entry and return the stream.
   /// The controller buffers events — no events can be lost regardless of
   /// async timing. Emits the cached result immediately if available.
-  Stream<List<Map<String, Object?>>> _subscribe(StreamEntry entry) {
-    final controller = StreamController<List<Map<String, Object?>>>();
+  Stream<ResultSet> _subscribe(StreamEntry entry) {
+    final controller = StreamController<ResultSet>();
     entry.subscribers.add(controller);
 
     controller.onCancel = () {
@@ -399,10 +400,10 @@ final class StreamEntry {
   /// non-broadcast StreamController that buffers events, eliminating the
   /// race condition where broadcast controllers silently drop events
   /// when no listener is attached (async* generator gap).
-  final List<StreamController<List<Map<String, Object?>>>> subscribers = [];
+  final List<StreamController<ResultSet>> subscribers = [];
 
   /// The most recently emitted result, used to seed new subscribers.
-  List<Map<String, Object?>>? lastResult;
+  ResultSet? lastResult;
 
   /// Hash of the last emitted result, for change detection.
   int lastResultHash = 0;
@@ -430,7 +431,7 @@ final class StreamEntry {
     return key == other.key;
   }
 
-  void emit(List<Map<String, Object?>> rows) {
+  void emit(ResultSet rows) {
     for (final sub in subscribers) {
       if (!sub.isClosed) sub.add(rows);
     }
