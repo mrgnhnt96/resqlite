@@ -91,7 +91,13 @@ ${_exportedSymbols.map((s) => '    $s;').join('\n')}
   final library = CBuilder.library(
     name: 'resqlite',
     packageName: 'resqlite',
-    std: 'c11',
+    // Linux needs gnu11 for POSIX helpers like strdup; Windows needs c17 for
+    // MSVC <stdatomic.h> support used by resqlite.c.
+    std: switch (targetOS) {
+      OS.linux => 'gnu11',
+      OS.windows => 'c17',
+      _ => 'c11',
+    },
     assetName: 'src/native/resqlite_bindings.dart',
     sources: [
       p.join(packageRoot.path, 'third_party', 'sqlite3mc', 'sqlite3mc_amalgamation.c'),
