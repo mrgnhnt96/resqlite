@@ -110,6 +110,10 @@ ${_exportedSymbols.map((s) => '    $s;').join('\n')}
     ],
     defines: _defines,
     flags: [
+      if (targetOS == OS.windows) ...[
+        // MSVC requires this alongside /std:c17 for <stdatomic.h> in resqlite.c.
+        '/experimental:c11atomics',
+      ],
       if (targetOS == OS.linux) ...[
         '-Wl,-Bsymbolic',
         '-Wl,--version-script=$linkerScript',
