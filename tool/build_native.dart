@@ -91,6 +91,7 @@ ${_exportedSymbols.map((s) => '    $s;').join('\n')}
   final library = CBuilder.library(
     name: 'resqlite',
     packageName: 'resqlite',
+    std: 'c11',
     assetName: 'src/native/resqlite_bindings.dart',
     sources: [
       p.join(packageRoot.path, 'third_party', 'sqlite3mc', 'sqlite3mc_amalgamation.c'),
