@@ -16,9 +16,11 @@ import 'package:path/path.dart' as p;
 Future<void> main(List<String> args) async {
   final checkOnly = args.contains('--check');
   final outputIndex = args.indexOf('--output');
+  final archIndex = args.indexOf('--arch');
   if (outputIndex == -1 || outputIndex + 1 >= args.length) {
     stderr.writeln(
-      'Usage: dart run tool/build_native.dart --output <directory> [--check]',
+      'Usage: dart run tool/build_native.dart --output <directory> '
+      '[--arch <architecture>] [--check]',
     );
     exit(64);
   }
@@ -26,6 +28,9 @@ Future<void> main(List<String> args) async {
   final outputDirectory = Directory(args[outputIndex + 1]).absolute;
   final packageRoot = Directory.current.absolute;
   final targetOS = OS.current;
+  final targetArchitecture = archIndex == -1 || archIndex + 1 >= args.length
+      ? Architecture.current
+      : Architecture.fromString(args[archIndex + 1]);
   final libraryFileName = targetOS.libraryFileName(
     'resqlite',
     DynamicLoadingBundled(),
@@ -75,7 +80,7 @@ ${_exportedSymbols.map((s) => '    $s;').join('\n')}
         macOS: targetOS == OS.macOS
             ? MacOSCodeConfig(targetVersion: 13)
             : null,
-        targetArchitecture: Architecture.current,
+        targetArchitecture: targetArchitecture,
         linkModePreference: LinkModePreference.dynamic,
       ),
     );
