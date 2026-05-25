@@ -1,6 +1,15 @@
 #ifndef RESQLITE_H
 #define RESQLITE_H
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+#ifndef SQLITE_API
+#define SQLITE_API __declspec(dllexport)
+#endif
+#define RESQLITE_API __declspec(dllexport)
+#else
+#define RESQLITE_API
+#endif
+
 #include "../third_party/sqlite3mc/sqlite3.h"
 #include <stdint.h>
 
@@ -44,14 +53,14 @@ typedef struct {
 // Open a database with a connection pool.
 // encryption_key_hex: hex-encoded encryption key, or NULL for no encryption.
 // max_readers: number of read connections (0 = default 8).
-resqlite_db* resqlite_open(const char* path, int max_readers, const char* encryption_key_hex);
-void resqlite_close(resqlite_db* db);
-const char* resqlite_errmsg(resqlite_db* db);
-const char* resqlite_reader_errmsg(resqlite_db* db, int reader_id);
-int resqlite_reader_last_error(resqlite_db* db, int reader_id);
+RESQLITE_API resqlite_db* resqlite_open(const char* path, int max_readers, const char* encryption_key_hex);
+RESQLITE_API void resqlite_close(resqlite_db* db);
+RESQLITE_API const char* resqlite_errmsg(resqlite_db* db);
+RESQLITE_API const char* resqlite_reader_errmsg(resqlite_db* db, int reader_id);
+RESQLITE_API int resqlite_reader_last_error(resqlite_db* db, int reader_id);
 
 // Get the raw sqlite3* writer connection handle (for direct FFI calls).
-sqlite3* resqlite_writer_handle(resqlite_db* db);
+RESQLITE_API sqlite3* resqlite_writer_handle(resqlite_db* db);
 
 // ---------------------------------------------------------------------------
 // Write operations (use writer connection)
@@ -64,7 +73,7 @@ typedef struct {
 } resqlite_write_result;
 
 // Execute a simple statement with no params (DDL, simple DML).
-int resqlite_exec(resqlite_db* db, const char* sql);
+RESQLITE_API int resqlite_exec(resqlite_db* db, const char* sql);
 
 // Transaction-control fast path
 // ([EXP-101](../experiments/101-tx-stmt-cache.md)).
@@ -74,15 +83,15 @@ int resqlite_exec(resqlite_db* db, const char* sql);
 // prepare+finalize. Each call takes the writer mutex for the duration
 // of the step, matching `resqlite_exec`'s locking discipline. Return
 // SQLITE_OK on success or an SQLite error code.
-int resqlite_tx_begin_immediate(resqlite_db* db);
-int resqlite_tx_commit(resqlite_db* db);
-int resqlite_tx_rollback(resqlite_db* db);
+RESQLITE_API int resqlite_tx_begin_immediate(resqlite_db* db);
+RESQLITE_API int resqlite_tx_commit(resqlite_db* db);
+RESQLITE_API int resqlite_tx_rollback(resqlite_db* db);
 
 // Execute a write statement. Returns result info.
 // Supports both parameterized (param_count > 0) and unparameterized
 // (param_count == 0) writes. For unparameterized calls, automatically
 // detects multi-statement SQL via pzTail and falls back to sqlite3_exec.
-int resqlite_execute(
+RESQLITE_API int resqlite_execute(
     resqlite_db* db,
     const char* sql,
     const resqlite_param* params,
@@ -93,7 +102,7 @@ int resqlite_execute(
 // Execute a batch of parameterized writes: one SQL, many param sets.
 // Runs in a transaction (BEGIN/COMMIT). Uses a single prepared statement.
 // Returns SQLITE_OK on success. Automatically rolls back on error.
-int resqlite_run_batch(
+RESQLITE_API int resqlite_run_batch(
     resqlite_db* db,
     const char* sql,
     const resqlite_param* param_sets,  // flat array: param_sets[i * param_count + j]
@@ -106,7 +115,7 @@ int resqlite_run_batch(
 // opened one (BEGIN IMMEDIATE or SAVEPOINT). On error returns the sqlite code
 // without rolling back; the caller is responsible for choosing the correct
 // rollback scope (full ROLLBACK vs ROLLBACK TO savepoint).
-int resqlite_run_batch_nested(
+RESQLITE_API int resqlite_run_batch_nested(
     resqlite_db* db,
     const char* sql,
     const resqlite_param* param_sets,
@@ -131,7 +140,7 @@ int resqlite_run_batch_nested(
 //     fresh.
 // Strings are owned by the dirty set (freed on next add or close);
 // callers must copy before further writer activity.
-int resqlite_get_dirty_tables(
+RESQLITE_API int resqlite_get_dirty_tables(
     resqlite_db* db,
     const char** out_tables,  // array of at least RESQLITE_MAX_DIRTY_TABLES pointers
     int max_tables
@@ -158,7 +167,7 @@ int resqlite_get_dirty_tables(
 //     table" and route the stream into the unknown-dependencies fallback.
 //   * `0`    — no entry yet (no query has been prepared on this
 //     reader).
-int resqlite_get_read_tables(
+RESQLITE_API int resqlite_get_read_tables(
     resqlite_db* db,
     int reader_id,
     const char** out_tables,
@@ -191,7 +200,7 @@ int resqlite_get_read_tables(
 //     and falls back to table-level invalidation. Tables remain the
 //     correctness layer; columns are an optimization that gracefully
 //     degrades.
-int resqlite_get_read_columns(
+RESQLITE_API int resqlite_get_read_columns(
     resqlite_db* db,
     int reader_id,
     const char** out_tables,
@@ -214,14 +223,14 @@ int resqlite_get_read_columns(
 //     getter still reports the dirty tables (or returns
 //     RESQLITE_DEPENDENCY_COUNT_UNKNOWN itself if it overflowed); Dart falls
 //     back to table-level invalidation.
-int resqlite_get_dirty_columns(
+RESQLITE_API int resqlite_get_dirty_columns(
     resqlite_db* db,
     const char** out_tables,
     const char** out_columns,
     int max_columns
 );
 
-int resqlite_db_status_total(
+RESQLITE_API int resqlite_db_status_total(
     resqlite_db* db,
     int op,
     int reset,
@@ -233,7 +242,7 @@ int resqlite_db_status_total(
 // Read operations (use reader pool)
 // ---------------------------------------------------------------------------
 
-sqlite3_stmt* resqlite_stmt_acquire(
+RESQLITE_API sqlite3_stmt* resqlite_stmt_acquire(
     resqlite_db* db,
     const char* sql,
     const resqlite_param* params,
@@ -241,10 +250,10 @@ sqlite3_stmt* resqlite_stmt_acquire(
     int* out_reader
 );
 
-void resqlite_stmt_release(resqlite_db* db, int reader_id);
+RESQLITE_API void resqlite_stmt_release(resqlite_db* db, int reader_id);
 
 // Dedicated reader variant — no pool mutex. Caller guarantees exclusive access.
-sqlite3_stmt* resqlite_stmt_acquire_on(
+RESQLITE_API sqlite3_stmt* resqlite_stmt_acquire_on(
     resqlite_db* db,
     int reader_id,
     const char* sql,
@@ -254,14 +263,14 @@ sqlite3_stmt* resqlite_stmt_acquire_on(
 );
 
 // Writer variant — no mutex. Caller (writer isolate) guarantees exclusive access.
-sqlite3_stmt* resqlite_stmt_acquire_writer(
+RESQLITE_API sqlite3_stmt* resqlite_stmt_acquire_writer(
     resqlite_db* db,
     const char* sql,
     const resqlite_param* params,
     int param_count
 );
 
-int resqlite_query_bytes(
+RESQLITE_API int resqlite_query_bytes(
     resqlite_db* db,
     int reader_id,
     const char* sql,
@@ -271,7 +280,7 @@ int resqlite_query_bytes(
     int* out_len
 );
 
-void resqlite_free(void* ptr);
+RESQLITE_API void resqlite_free(void* ptr);
 
 // ---------------------------------------------------------------------------
 // Batch row reader — one FFI call per row instead of ~16
@@ -287,29 +296,29 @@ typedef struct {
     };
 } resqlite_cell;         // 16 bytes total
 
-int resqlite_effective_column_count(sqlite3_stmt* stmt);
-const char* resqlite_column_name(sqlite3_stmt* stmt, int col);
+RESQLITE_API int resqlite_effective_column_count(sqlite3_stmt* stmt);
+RESQLITE_API const char* resqlite_column_name(sqlite3_stmt* stmt, int col);
 
-int resqlite_read_current_row(
+RESQLITE_API int resqlite_read_current_row(
     sqlite3_stmt* stmt,
     int col_count,
     resqlite_cell* cells
 );
 
-int resqlite_step_row(
+RESQLITE_API int resqlite_step_row(
     sqlite3_stmt* stmt,
     int col_count,
     resqlite_cell* cells
 );
 
-int resqlite_read_current_row_hash(
+RESQLITE_API int resqlite_read_current_row_hash(
     sqlite3_stmt* stmt,
     int col_count,
     resqlite_cell* cells,
     uint64_t* hash
 );
 
-int resqlite_step_row_hash(
+RESQLITE_API int resqlite_step_row_hash(
     sqlite3_stmt* stmt,
     int col_count,
     resqlite_cell* cells,
@@ -337,7 +346,7 @@ int resqlite_step_row_hash(
 //   - the initial stream query's baseline hash (called after
 //     decodeQuery has already produced the rows for the subscriber;
 //     SQLite replays the read-only query to compute the hash).
-long long resqlite_query_hash(
+RESQLITE_API long long resqlite_query_hash(
     sqlite3_stmt* stmt, int last_row_count, int* out_row_count);
 
 #endif // RESQLITE_H

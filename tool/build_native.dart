@@ -54,6 +54,7 @@ Future<void> main(List<String> args) async {
   }
 
   String? linkerScript;
+  String? moduleDefFile;
   if (targetOS == OS.linux) {
     linkerScript = p.join(outputDirectory.path, 'resqlite.map');
     await File(linkerScript).writeAsString('''
@@ -63,6 +64,17 @@ ${_exportedSymbols.map((s) => '    $s;').join('\n')}
   local:
     *;
 };
+''');
+  } else if (targetOS == OS.windows) {
+    // MSVC does not export non-static symbols from DLLs by default. Dart's
+    // @Native fallback resolves via process lookup, so resqlite_open and the
+    // other FFI entrypoints must be exported explicitly (mirrors the Linux
+    // version script below).
+    moduleDefFile = p.join(outputDirectory.path, 'resqlite.def');
+    await File(moduleDefFile).writeAsString('''
+LIBRARY resqlite
+EXPORTS
+${_exportedSymbols.map((s) => '  $s').join('\n')}
 ''');
   }
 
@@ -118,6 +130,7 @@ ${_exportedSymbols.map((s) => '    $s;').join('\n')}
       if (targetOS == OS.windows) ...[
         // MSVC requires this alongside /std:c17 for <stdatomic.h> in resqlite.c.
         '/experimental:c11atomics',
+        if (moduleDefFile != null) '/DEF:$moduleDefFile',
       ],
       if (targetOS == OS.linux) ...[
         '-Wl,-Bsymbolic',
