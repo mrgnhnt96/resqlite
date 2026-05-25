@@ -6,6 +6,22 @@ import 'package:ffi/ffi.dart';
 DynamicLibrary? _installedLibrary;
 String? _installedPath;
 
+// Linux dlopen defaults to RTLD_LOCAL, so @Native fallbacks that use process
+// lookup cannot see symbols loaded via DynamicLibrary.open. macOS defaults to
+// global visibility; see https://github.com/dart-lang/sdk/issues/50105
+const _rtldLazy = 0x00001;
+const _rtldGlobalLinux = 0x00100;
+const _rtldGlobalAndroidArm = 0x00002;
+
+@Native<Pointer<Void> Function(Pointer<Utf8>, Int)>(symbol: 'dlopen')
+external Pointer<Void> _dlopen(Pointer<Utf8> filename, int flag);
+
+bool get _needsExplicitDlopenGlobal =>
+    Platform.isLinux || Platform.isAndroid || Platform.isFuchsia;
+
+int get _rtldGlobalFlag =>
+    Abi.current() == Abi.androidArm ? _rtldGlobalAndroidArm : _rtldGlobalLinux;
+
 /// Loads the resqlite native library from [path] so [@Native] bindings can
 /// resolve symbols via process lookup.
 ///
@@ -15,6 +31,20 @@ void install(String path) {
   final absolute = File(path).absolute.path;
   if (_installedPath == absolute && _installedLibrary != null) {
     return;
+  }
+
+  if (_needsExplicitDlopenGlobal) {
+    using((arena) {
+      final handle = _dlopen(
+        absolute.toNativeUtf8(allocator: arena),
+        _rtldLazy | _rtldGlobalFlag,
+      );
+      if (handle == nullptr) {
+        throw ArgumentError(
+          'Failed to dlopen resqlite library at $absolute with RTLD_GLOBAL',
+        );
+      }
+    });
   }
 
   _installedLibrary = DynamicLibrary.open(absolute);
