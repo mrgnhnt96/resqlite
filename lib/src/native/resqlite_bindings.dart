@@ -658,6 +658,21 @@ const int _asciiBatchMinTotalParamCount = 8192;
 typedef _BatchStringWriter =
     int Function(String value, Uint8List out, int offset, int flatIndex);
 
+/// BLOB bind values are [Uint8List], or [List<int>] after JSON IPC round-trips.
+Uint8List? blobParamBytes(Object? value) {
+  if (value is Uint8List) return value;
+  if (value is! List) return null;
+
+  if (value.isEmpty) return Uint8List(0);
+
+  final bytes = <int>[];
+  for (final item in value) {
+    if (item is! int) return null;
+    bytes.add(item);
+  }
+  return Uint8List.fromList(bytes);
+}
+
 /// Pack params into a single buffer: `[struct0..N][text/blob bytes]`.
 ///
 /// Text and blob bytes live inline at the tail of the same buffer that
@@ -694,8 +709,8 @@ ffi.Pointer<ffi.Uint8> allocateParams(List<Object?> params) {
       final bytes = utf8.encode(value);
       encodedStrings[i] = bytes;
       extraBytes += bytes.length;
-    } else if (value is Uint8List) {
-      extraBytes += value.length;
+    } else if (blobParamBytes(value) case final bytes?) {
+      extraBytes += bytes.length;
     }
   }
 
@@ -726,12 +741,12 @@ ffi.Pointer<ffi.Uint8> allocateParams(List<Object?> params) {
       byteData.setInt64(offset + 8, bufAddr + dataOffset, Endian.little);
       byteData.setInt32(offset + 16, bytes.length, Endian.little);
       dataOffset += bytes.length;
-    } else if (value is Uint8List) {
-      view.setRange(dataOffset, dataOffset + value.length, value);
+    } else if (blobParamBytes(value) case final bytes?) {
+      view.setRange(dataOffset, dataOffset + bytes.length, bytes);
       byteData.setInt32(offset, 4, Endian.little);
       byteData.setInt64(offset + 8, bufAddr + dataOffset, Endian.little);
-      byteData.setInt32(offset + 16, value.length, Endian.little);
-      dataOffset += value.length;
+      byteData.setInt32(offset + 16, bytes.length, Endian.little);
+      dataOffset += bytes.length;
     } else {
       byteData.setInt32(offset, 0, Endian.little);
     }
@@ -808,8 +823,8 @@ int? _measureBatchPayloadBytes(
         } else {
           extraBytes += _utf8Length(value);
         }
-      } else if (value is Uint8List) {
-        extraBytes += value.length;
+      } else if (blobParamBytes(value) case final bytes?) {
+        extraBytes += bytes.length;
       }
     }
   }
@@ -887,12 +902,12 @@ ffi.Pointer<ffi.Uint8> _allocatePackedBatchParams(
         byteData.setInt32(offset, 3, Endian.little);
         byteData.setInt64(offset + 8, bufAddr + start, Endian.little);
         byteData.setInt32(offset + 16, dataOffset - start, Endian.little);
-      } else if (value is Uint8List) {
-        view.setRange(dataOffset, dataOffset + value.length, value);
+      } else if (blobParamBytes(value) case final bytes?) {
+        view.setRange(dataOffset, dataOffset + bytes.length, bytes);
         byteData.setInt32(offset, 4, Endian.little);
         byteData.setInt64(offset + 8, bufAddr + dataOffset, Endian.little);
-        byteData.setInt32(offset + 16, value.length, Endian.little);
-        dataOffset += value.length;
+        byteData.setInt32(offset + 16, bytes.length, Endian.little);
+        dataOffset += bytes.length;
       } else {
         byteData.setInt32(offset, 0, Endian.little);
       }
@@ -988,8 +1003,8 @@ ffi.Pointer<ffi.Uint8> _allocateBatchParamsGeneric(
         final bytes = utf8.encode(value);
         encodedStrings[flatIndex] = bytes;
         extraBytes += bytes.length;
-      } else if (value is Uint8List) {
-        extraBytes += value.length;
+      } else if (blobParamBytes(value) case final bytes?) {
+        extraBytes += bytes.length;
       }
       flatIndex++;
     }

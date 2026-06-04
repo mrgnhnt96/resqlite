@@ -207,6 +207,19 @@ void main() {
       expect(row['null_val'], isNull);
     });
 
+    test('insert accepts List<int> blob params after JSON round-trip', () async {
+      await db.execute(
+        'CREATE TABLE t(id INTEGER PRIMARY KEY, data BLOB NOT NULL)',
+      );
+      final blob = Uint8List.fromList([1, 2, 3]);
+      final jsonDecoded = jsonDecode(jsonEncode(blob));
+
+      await db.execute('INSERT INTO t(data) VALUES (?)', [jsonDecoded]);
+
+      final rows = await db.select('SELECT data FROM t');
+      expect(rows[0]['data'], [1, 2, 3]);
+    });
+
     test('select empty result', () async {
       await db.execute('CREATE TABLE t(id INTEGER PRIMARY KEY)');
       final rows = await db.select('SELECT * FROM t');
