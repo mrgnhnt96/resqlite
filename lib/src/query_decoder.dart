@@ -3,7 +3,6 @@
 /// Contains the cell buffer, schema cache, fast text decode, and the
 /// stepped-query decode loop. Each isolate gets its own copy of the
 /// file-level globals (Dart isolates don't share top-level state).
-@ffi.DefaultAsset('package:resqlite/src/native/resqlite_bindings.dart')
 library;
 
 import 'dart:collection';

@@ -3,7 +3,6 @@
 /// The actual cell decode loop, schema cache, and text decode live in
 /// query_decode.dart (shared with the writer). This file owns the reader-
 /// specific FFI bindings, the sacrifice decision, and the isolate protocol.
-@ffi.DefaultAsset('package:resqlite/src/native/resqlite_bindings.dart')
 library;
 
 import 'dart:developer' show Timeline;

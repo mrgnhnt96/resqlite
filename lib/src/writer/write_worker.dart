@@ -4,7 +4,6 @@
 /// Transaction reads (tx.select) use the same optimized decode path as
 /// readers via query_decode.dart — C statement cache, cell-buffer stepping,
 /// ASCII fast-path text decode, and schema caching.
-@ffi.DefaultAsset('package:resqlite/src/native/resqlite_bindings.dart')
 library;
 
 import 'dart:developer' show Timeline;

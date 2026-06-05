@@ -1,4 +1,3 @@
-@ffi.DefaultAsset('package:resqlite/src/native/resqlite_bindings.dart')
 library;
 
 import 'dart:convert' show utf8;
