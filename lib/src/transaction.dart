@@ -105,10 +105,7 @@ final class Transaction {
   ///
   /// Throws [StateError] if called after the enclosing transaction body
   /// has returned.
-  Future<void> executeBatch(
-    String sql,
-    List<List<Object?>> paramSets,
-  ) async {
+  Future<void> executeBatch(String sql, List<List<Object?>> paramSets) async {
     _ensureActive();
     await _writer.executeBatch(sql, paramSets);
   }

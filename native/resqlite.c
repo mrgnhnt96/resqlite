@@ -361,6 +361,7 @@ struct resqlite_db {
     // No condition variable — Dart retries if no reader available.
 
     char* path;
+    char* encryption_key;
 };
 
 #define RESQLITE_WRITER_PASSIVE_CHECKPOINT_PAGES 500
@@ -509,11 +510,13 @@ static int _wal_check_cb(void* arg, int ncols, char** values, char** names) {
 
 // Open a connection with optional encryption.
 // encryption_key_hex: hex string like "aabb01..." or NULL for no encryption.
-static sqlite3* open_connection(const char* path, int read_only,
+static sqlite3* open_connection(const char* path, int is_reader,
                                  const char* encryption_key_hex) {
     sqlite3* db = NULL;
-    int flags = read_only
-        ? (SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX)
+    // Reader pool connections use READWRITE (no CREATE), not READONLY.
+    // READONLY handles segfault when stepping queries that touch table pages.
+    int flags = is_reader
+        ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX)
         : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX);
 
     int rc = sqlite3_open_v2(path, &db, flags, NULL);
@@ -563,7 +566,13 @@ static sqlite3* open_connection(const char* path, int read_only,
         }
     }
     sqlite3_exec(db, "PRAGMA busy_timeout = 5000", NULL, NULL, NULL);
-    sqlite3_exec(db, "PRAGMA mmap_size = 268435456", NULL, NULL, NULL);  // 256 MB
+    // Reader connections disable mmap — mmap + WAL on a lazily opened
+    // read connection segfaults inside sqlite3_step on table scans (Dart 3.12).
+    if (!is_reader) {
+        sqlite3_exec(db, "PRAGMA mmap_size = 268435456", NULL, NULL, NULL);  // 256 MB
+    } else {
+        sqlite3_exec(db, "PRAGMA mmap_size = 0", NULL, NULL, NULL);
+    }
     sqlite3_exec(db, "PRAGMA cache_size = -8192", NULL, NULL, NULL);    // 8 MB
     sqlite3_exec(db, "PRAGMA temp_store = MEMORY", NULL, NULL, NULL);
     // FKs default off in SQLite. Turn on for every connection so cascades
@@ -571,7 +580,7 @@ static sqlite3* open_connection(const char* path, int read_only,
     // who need it off (e.g. mid-migration) can run
     // `PRAGMA foreign_keys = OFF` on the writer.
     sqlite3_exec(db, "PRAGMA foreign_keys = ON", NULL, NULL, NULL);
-    if (read_only) {
+    if (is_reader) {
         // Readers should never trigger auto-checkpoints.
         sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 0", NULL, NULL, NULL);
     } else {
@@ -587,23 +596,45 @@ static sqlite3* open_connection(const char* path, int read_only,
     return db;
 }
 
-resqlite_db* resqlite_open(const char* path, int max_readers,
-                          const char* encryption_key_hex) {
-    // Required when compiled with SQLITE_OMIT_AUTOINIT — call once before
-    // any other SQLite API. Subsequent calls are harmless no-ops.
+static int ensure_writer_open(resqlite_db* db) {
+    if (db->writer) return SQLITE_OK;
+
     sqlite3_initialize();
 
+    sqlite3* writer = open_connection(db->path, 0, db->encryption_key);
+    if (!writer) return SQLITE_CANTOPEN;
+
+    db->writer = writer;
+
+    sqlite3_prepare_v3(writer, "BEGIN IMMEDIATE", -1,
+                       SQLITE_PREPARE_PERSISTENT, &db->tx_begin_stmt, NULL);
+    sqlite3_prepare_v3(writer, "COMMIT", -1,
+                       SQLITE_PREPARE_PERSISTENT, &db->tx_commit_stmt, NULL);
+    sqlite3_prepare_v3(writer, "ROLLBACK", -1,
+                       SQLITE_PREPARE_PERSISTENT, &db->tx_rollback_stmt, NULL);
+
+    sqlite3_preupdate_hook(writer, preupdate_hook, db);
+    sqlite3_wal_hook(writer, writer_wal_hook, db);
+
+    db->writer_authz_ctx.tables = NULL;
+    db->writer_authz_ctx.columns = &db->writer_authz_scratch;
+    db->writer_authz_ctx.track_writes = 1;
+    sqlite3_set_authorizer(writer, authorizer_callback, &db->writer_authz_ctx);
+
+    sqlite3_wal_checkpoint_v2(writer, NULL, SQLITE_CHECKPOINT_TRUNCATE, NULL, NULL);
+    return SQLITE_OK;
+}
+
+resqlite_db* resqlite_open(const char* path, int max_readers,
+                          const char* encryption_key_hex) {
     if (max_readers <= 0) max_readers = 8;
     if (max_readers > MAX_READERS) max_readers = MAX_READERS;
 
-    // Open write connection.
-    sqlite3* writer = open_connection(path, 0, encryption_key_hex);
-    if (!writer) return NULL;
-
     resqlite_db* db = (resqlite_db*)calloc(1, sizeof(resqlite_db));
     atomic_init(&db->closed, 0);
-    db->writer = writer;
+    db->writer = NULL;
     db->path = strdup(path);
+    db->encryption_key = encryption_key_hex ? strdup(encryption_key_hex) : NULL;
     stmt_cache_init(&db->writer_cache);
     resqlite_dirty_set_init(&db->dirty_tables);
     resqlite_column_set_init(&db->dirty_columns);
@@ -612,69 +643,41 @@ resqlite_db* resqlite_open(const char* path, int max_readers,
     db->writer_mutex = sqlite3_mutex_alloc(SQLITE_MUTEX_FAST);
     db->pool_mutex = sqlite3_mutex_alloc(SQLITE_MUTEX_FAST);
 
-    // Pre-prepare transaction-control stmts
-    // ([EXP-101](../experiments/101-tx-stmt-cache.md)). These are
-    // hot-path statements fired on every transaction boundary, so we
-    // prepare them once and re-use via sqlite3_reset + sqlite3_step
-    // instead of paying sqlite3_exec's prepare+step+finalize each call.
-    sqlite3_prepare_v3(writer, "BEGIN IMMEDIATE", -1,
-                       SQLITE_PREPARE_PERSISTENT, &db->tx_begin_stmt, NULL);
-    sqlite3_prepare_v3(writer, "COMMIT", -1,
-                       SQLITE_PREPARE_PERSISTENT, &db->tx_commit_stmt, NULL);
-    sqlite3_prepare_v3(writer, "ROLLBACK", -1,
-                       SQLITE_PREPARE_PERSISTENT, &db->tx_rollback_stmt, NULL);
-
-    // Install preupdate hook on writer for dirty table tracking.
-    sqlite3_preupdate_hook(writer, preupdate_hook, db);
-    sqlite3_wal_hook(writer, writer_wal_hook, db);
-
-    // [EXP-106](../experiments/106-column-level-deps.md): install authorizer on
-    // the writer to capture which columns each prepared DML stmt could modify.
-    // The authorizer fires inside `sqlite3_prepare_v3`; we drain
-    // `writer_authz_scratch` into the cached stmt entry as soon as prepare
-    // returns. With `track_writes` set on the writer, SQLITE_READ events are
-    // ignored; read dependencies are captured by the reader authorizers below.
-    db->writer_authz_ctx.tables = NULL;
-    db->writer_authz_ctx.columns = &db->writer_authz_scratch;
-    db->writer_authz_ctx.track_writes = 1;
-    sqlite3_set_authorizer(writer, authorizer_callback, &db->writer_authz_ctx);
-
-    // Open reader connections with authorizer hooks for dependency tracking.
-    // Use reader_count as the insertion index so successful readers are
-    // packed contiguously — no gaps if an earlier open/init fails.
-    db->reader_count = 0;
+    db->reader_count = max_readers;
     for (int i = 0; i < max_readers; i++) {
-        sqlite3* rdb = open_connection(path, 1, encryption_key_hex);
-        if (!rdb) continue;
-
-        int idx = db->reader_count;
-        db->readers[idx].db = rdb;
-        stmt_cache_init(&db->readers[idx].cache);
-        resqlite_read_set_init(&db->readers[idx].read_tables);
-        resqlite_column_set_init(&db->readers[idx].read_columns);
-        db->readers[idx].last_entry = NULL;
-        if (buf_init(&db->readers[idx].json_buf, 16384) != 0) {
-            sqlite3_close_v2(rdb);
-            db->readers[idx].db = NULL;
-            continue;
+        db->readers[i].db = NULL;
+        stmt_cache_init(&db->readers[i].cache);
+        resqlite_read_set_init(&db->readers[i].read_tables);
+        resqlite_column_set_init(&db->readers[i].read_columns);
+        db->readers[i].last_entry = NULL;
+        if (buf_init(&db->readers[i].json_buf, 16384) != 0) {
+            db->reader_count = i;
+            break;
         }
-        db->readers[idx].in_use = 0;
-        db->readers[idx].last_error = SQLITE_OK;
-
-        // Install authorizer to capture read dependencies (table + column).
-        // The context lives inline on the reader so its address is stable
-        // across the connection's lifetime — sqlite3_set_authorizer stores
-        // the pointer for the duration of the connection.
-        db->readers[idx].authz_ctx.tables = &db->readers[idx].read_tables;
-        db->readers[idx].authz_ctx.columns = &db->readers[idx].read_columns;
-        db->readers[idx].authz_ctx.track_writes = 0;
-        sqlite3_set_authorizer(rdb, authorizer_callback,
-                               &db->readers[idx].authz_ctx);
-
-        db->reader_count++;
+        db->readers[i].in_use = 0;
+        db->readers[i].last_error = SQLITE_OK;
+        db->readers[i].authz_ctx.tables = &db->readers[i].read_tables;
+        db->readers[i].authz_ctx.columns = &db->readers[i].read_columns;
+        db->readers[i].authz_ctx.track_writes = 0;
     }
 
     return db;
+}
+
+static int ensure_reader_open(resqlite_db* db, int reader_id) {
+    resqlite_reader* reader = &db->readers[reader_id];
+    if (reader->db) return SQLITE_OK;
+
+    sqlite3_initialize();
+
+    sqlite3* rdb = open_connection(db->path, 1, db->encryption_key);
+    if (!rdb) return SQLITE_CANTOPEN;
+
+    reader->db = rdb;
+    sqlite3_set_authorizer(rdb, authorizer_callback, &reader->authz_ctx);
+    // Sync WAL snapshot so the first table scan sees writer commits.
+    sqlite3_wal_checkpoint_v2(rdb, NULL, SQLITE_CHECKPOINT_PASSIVE, NULL, NULL);
+    return SQLITE_OK;
 }
 
 void resqlite_close(resqlite_db* db) {
@@ -703,12 +706,13 @@ void resqlite_close(resqlite_db* db) {
     resqlite_dirty_set_free(&db->dirty_tables);
     resqlite_column_set_free(&db->dirty_columns);
     resqlite_column_set_free(&db->writer_authz_scratch);
-    sqlite3_close_v2(db->writer);
+    if (db->writer) sqlite3_close_v2(db->writer);
     sqlite3_mutex_leave(db->writer_mutex);
 
     sqlite3_mutex_free(db->writer_mutex);
     sqlite3_mutex_free(db->pool_mutex);
     free(db->path);
+    free(db->encryption_key);
     free(db);
 }
 
@@ -753,6 +757,11 @@ int resqlite_exec(resqlite_db* db, const char* sql) {
         return SQLITE_MISUSE;
     }
     sqlite3_mutex_enter(db->writer_mutex);
+    int open_rc = ensure_writer_open(db);
+    if (open_rc != SQLITE_OK) {
+        sqlite3_mutex_leave(db->writer_mutex);
+        return open_rc;
+    }
     int rc = sqlite3_exec(db->writer, sql, NULL, NULL, NULL);
     sqlite3_mutex_leave(db->writer_mutex);
     return rc;
@@ -777,6 +786,11 @@ int resqlite_tx_begin_immediate(resqlite_db* db) {
         return SQLITE_MISUSE;
     }
     sqlite3_mutex_enter(db->writer_mutex);
+    int open_rc = ensure_writer_open(db);
+    if (open_rc != SQLITE_OK) {
+        sqlite3_mutex_leave(db->writer_mutex);
+        return open_rc;
+    }
     int rc = run_cached_tx_stmt(db->tx_begin_stmt);
     sqlite3_mutex_leave(db->writer_mutex);
     return rc;
@@ -787,6 +801,11 @@ int resqlite_tx_commit(resqlite_db* db) {
         return SQLITE_MISUSE;
     }
     sqlite3_mutex_enter(db->writer_mutex);
+    int open_rc = ensure_writer_open(db);
+    if (open_rc != SQLITE_OK) {
+        sqlite3_mutex_leave(db->writer_mutex);
+        return open_rc;
+    }
     int rc = run_cached_tx_stmt(db->tx_commit_stmt);
     sqlite3_mutex_leave(db->writer_mutex);
     return rc;
@@ -797,6 +816,11 @@ int resqlite_tx_rollback(resqlite_db* db) {
         return SQLITE_MISUSE;
     }
     sqlite3_mutex_enter(db->writer_mutex);
+    int open_rc = ensure_writer_open(db);
+    if (open_rc != SQLITE_OK) {
+        sqlite3_mutex_leave(db->writer_mutex);
+        return open_rc;
+    }
     int rc = run_cached_tx_stmt(db->tx_rollback_stmt);
     sqlite3_mutex_leave(db->writer_mutex);
     return rc;
@@ -861,6 +885,11 @@ int resqlite_execute(
         return SQLITE_MISUSE;
     }
     sqlite3_mutex_enter(db->writer_mutex);
+    int open_rc = ensure_writer_open(db);
+    if (open_rc != SQLITE_OK) {
+        sqlite3_mutex_leave(db->writer_mutex);
+        return open_rc;
+    }
 
     int rc;
     const char* tail = NULL;
@@ -995,6 +1024,11 @@ int resqlite_run_batch(
         return SQLITE_MISUSE;
     }
     sqlite3_mutex_enter(db->writer_mutex);
+    int open_rc = ensure_writer_open(db);
+    if (open_rc != SQLITE_OK) {
+        sqlite3_mutex_leave(db->writer_mutex);
+        return open_rc;
+    }
 
     // BEGIN IMMEDIATE acquires the write lock upfront, avoiding the
     // lock-upgrade path since we know we're writing. The cached
@@ -1032,6 +1066,11 @@ int resqlite_run_batch_nested(
     // and the Dart-level caller decides whether to ROLLBACK (top-level tx)
     // or ROLLBACK TO a savepoint.
     sqlite3_mutex_enter(db->writer_mutex);
+    int open_rc = ensure_writer_open(db);
+    if (open_rc != SQLITE_OK) {
+        sqlite3_mutex_leave(db->writer_mutex);
+        return open_rc;
+    }
     int rc = run_batch_locked(db, sql, param_sets, param_count, set_count);
     sqlite3_mutex_leave(db->writer_mutex);
     return rc;
@@ -1385,6 +1424,13 @@ sqlite3_stmt* resqlite_stmt_acquire(
     }
     resqlite_reader* reader = &db->readers[reader_idx];
 
+    int open_rc = ensure_reader_open(db, reader_idx);
+    if (open_rc != SQLITE_OK || !reader->db) {
+        release_reader(db, reader_idx);
+        *out_reader = -1;
+        return NULL;
+    }
+
     int rc;
     resqlite_cached_stmt* entry =
         get_or_prepare_reader(reader, sql, (int)strlen(sql), &rc);
@@ -1434,12 +1480,14 @@ sqlite3_stmt* resqlite_stmt_acquire_on(
         return NULL;
     }
     resqlite_reader* reader = &db->readers[reader_id];
-    if (!reader->db) {
-        reader->last_error = SQLITE_MISUSE;
-        if (out_rc) *out_rc = SQLITE_MISUSE;
+    reader->last_error = SQLITE_OK;
+
+    int open_rc = ensure_reader_open(db, reader_id);
+    if (open_rc != SQLITE_OK || !reader->db) {
+        reader->last_error = open_rc;
+        if (out_rc) *out_rc = open_rc;
         return NULL;
     }
-    reader->last_error = SQLITE_OK;
 
     int rc;
     resqlite_cached_stmt* entry =
@@ -1471,6 +1519,7 @@ sqlite3_stmt* resqlite_stmt_acquire_writer(
     int param_count
 ) {
     if (!db || atomic_load_explicit(&db->closed, memory_order_acquire)) return NULL;
+    if (ensure_writer_open(db) != SQLITE_OK) return NULL;
     int rc;
     const char* tail;
     resqlite_cached_stmt* entry =
@@ -1782,6 +1831,13 @@ int resqlite_query_bytes(
         return SQLITE_BUSY;
     }
     resqlite_reader* reader = &db->readers[reader_id];
+
+    int open_rc = ensure_reader_open(db, reader_id);
+    if (open_rc != SQLITE_OK || !reader->db) {
+        *out_buf = NULL;
+        *out_len = 0;
+        return open_rc;
+    }
 
     int rc;
     resqlite_cached_stmt* entry =

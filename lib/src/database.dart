@@ -7,6 +7,7 @@ import 'package:ffi/ffi.dart';
 import 'package:resqlite/src/transaction.dart';
 import 'package:resqlite/src/writer/writer.dart';
 
+import 'dependency_tracking.dart';
 import 'diagnostics.dart';
 import 'exceptions.dart';
 import 'native/native_library.dart';
@@ -45,6 +46,7 @@ final class Database {
 
       // Start the reactive query stream engine.
       final streamEngine = StreamEngine(readerPool);
+      streamEngine.onWriteInvalidation = _onWriteInvalidation;
 
       // Spawn the single writer isolate.
       final writer = await Writer.spawn(streamEngine, _handle);
@@ -69,6 +71,8 @@ final class Database {
 
   Completer<void>? _closedCompleter = null;
 
+  void Function(TableDependencies changes)? _onWriteInvalidation;
+
   /// The raw native database handle.
   ///
   /// Exposed for advanced FFI interop only. Most applications should not
@@ -82,6 +86,19 @@ final class Database {
   void _ensureOpen() {
     if (_closedCompleter != null)
       throw ResqliteConnectionException('Database is closed.');
+  }
+
+  /// Binds [listener] to committed-write invalidation notifications.
+  ///
+  /// Invoked with the tables modified by each committed [execute],
+  /// [executeBatch], or [transaction]. In-transaction statements do not
+  /// notify until the enclosing transaction commits.
+  Future<void> bindWriteInvalidation(
+    void Function(TableDependencies changes) listener,
+  ) async {
+    _onWriteInvalidation = listener;
+    final _DatabaseRuntime(:streamEngine) = await _runtime;
+    streamEngine.onWriteInvalidation = listener;
   }
 
   /// Opens or creates a SQLite database at [path].
@@ -312,13 +329,11 @@ final class Database {
   ///
   /// Create streams once and reuse them (e.g., as `late final` fields in
   /// a `State` class), rather than creating new streams on every build.
-  Stream<ResultSet> stream(
-    String sql, [
-    List<Object?> parameters = const [],
-  ]) {
+  Stream<ResultSet> stream(String sql, [List<Object?> parameters = const []]) {
     _ensureOpen();
-    return Stream.fromFuture(_runtime)
-        .asyncExpand((runtime) => runtime.streamEngine.stream(sql, parameters));
+    return Stream.fromFuture(
+      _runtime,
+    ).asyncExpand((runtime) => runtime.streamEngine.stream(sql, parameters));
   }
 
   // -------------------------------------------------------------------------
@@ -512,5 +527,5 @@ final class Database {
 typedef _DatabaseRuntime = ({
   ReaderPool readerPool,
   StreamEngine streamEngine,
-  Writer writer
+  Writer writer,
 });

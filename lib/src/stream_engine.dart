@@ -52,6 +52,11 @@ final class StreamEngine {
 
   final ReaderPool _pool;
 
+  /// Optional hook for external stream engines (e.g. hybrid sqlite3 reads).
+  ///
+  /// Invoked after each committed write with the tables modified by that write.
+  void Function(TableDependencies changes)? onWriteInvalidation;
+
   /// The index of streamed queries by their hash key.
   final Map<int, StreamEntry> _entries = {};
 
@@ -80,10 +85,7 @@ final class StreamEngine {
   /// Streams are deduplicated: multiple calls with the same SQL and params
   /// share a single underlying query. New listeners receive the cached
   /// result immediately.
-  Stream<ResultSet> stream(
-    String sql, [
-    List<Object?> parameters = const [],
-  ]) {
+  Stream<ResultSet> stream(String sql, [List<Object?> parameters = const []]) {
     final key = _streamKey(sql, parameters);
 
     // If there is already a stream entry for this query, then subscribe to it.
@@ -101,13 +103,15 @@ final class StreamEngine {
   /// this writer response. [TableDependencies.unknown] means native dirty-table
   /// tracking was unreliable, so every active stream must re-query.
   Future<void> onDependencyChanges(TableDependencies changes) async {
-    if (_entries.isEmpty) {
-      return;
-    }
-
     if (changes case FixedTableDependencies(
       :final tables,
     ) when tables.isEmpty) {
+      return;
+    }
+
+    onWriteInvalidation?.call(changes);
+
+    if (_entries.isEmpty) {
       return;
     }
 
@@ -211,11 +215,7 @@ final class StreamEngine {
   /// eliminating the race condition where async* generators + broadcast
   /// controllers silently drop events during microtask gaps.
   ///
-  Stream<ResultSet> _createStream(
-    int key,
-    String sql,
-    List<Object?> params,
-  ) {
+  Stream<ResultSet> _createStream(int key, String sql, List<Object?> params) {
     final entry = _entries[key] = StreamEntry(
       key: key,
       sql: sql,

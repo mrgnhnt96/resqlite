@@ -50,5 +50,7 @@
 /// Never introduce unconditional instrumentation to production code
 /// paths unless the cost is provably sub-nanosecond per call AND
 /// symmetric across all peers being compared.
-const bool kProfileMode =
-    bool.fromEnvironment('RESQLITE_PROFILE', defaultValue: false);
+const bool kProfileMode = bool.fromEnvironment(
+  'RESQLITE_PROFILE',
+  defaultValue: false,
+);

@@ -42,28 +42,36 @@ void main() {
       }
     });
 
-    test('returns a snapshot with non-negative counters on a fresh db',
-        () async {
-      final d = await db.diagnostics();
-      expect(d.sqlitePageCacheBytes, greaterThanOrEqualTo(0));
-      expect(d.sqliteSchemaBytes, greaterThanOrEqualTo(0));
-      expect(d.sqliteStmtBytes, greaterThanOrEqualTo(0));
-      expect(d.walBytes, greaterThanOrEqualTo(0));
-      expect(d.readersBusyAtSnapshot, isFalse);
-      expect(d.sqliteTotalBytes,
-          equals(d.sqlitePageCacheBytes +
-              d.sqliteSchemaBytes +
-              d.sqliteStmtBytes));
-    });
+    test(
+      'returns a snapshot with non-negative counters on a fresh db',
+      () async {
+        final d = await db.diagnostics();
+        expect(d.sqlitePageCacheBytes, greaterThanOrEqualTo(0));
+        expect(d.sqliteSchemaBytes, greaterThanOrEqualTo(0));
+        expect(d.sqliteStmtBytes, greaterThanOrEqualTo(0));
+        expect(d.walBytes, greaterThanOrEqualTo(0));
+        expect(d.readersBusyAtSnapshot, isFalse);
+        expect(
+          d.sqliteTotalBytes,
+          equals(
+            d.sqlitePageCacheBytes + d.sqliteSchemaBytes + d.sqliteStmtBytes,
+          ),
+        );
+      },
+    );
 
     test('walBytes grows after writes in WAL mode', () async {
       final before = await db.diagnostics();
       await db.execute('CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER)');
-      await db.executeBatch('INSERT INTO t(v) VALUES (?)',
-          [for (var i = 0; i < 200; i++) [i]]);
+      await db.executeBatch('INSERT INTO t(v) VALUES (?)', [
+        for (var i = 0; i < 200; i++) [i],
+      ]);
       final after = await db.diagnostics();
-      expect(after.walBytes, greaterThan(before.walBytes),
-          reason: 'WAL sidecar should grow after a batch of inserts');
+      expect(
+        after.walBytes,
+        greaterThan(before.walBytes),
+        reason: 'WAL sidecar should grow after a batch of inserts',
+      );
     });
 
     test('schemaBytes grows after adding tables', () async {
@@ -75,8 +83,11 @@ void main() {
       await db.select('SELECT * FROM a');
       await db.select('SELECT * FROM b');
       final after = await db.diagnostics();
-      expect(after.sqliteSchemaBytes, greaterThan(before.sqliteSchemaBytes),
-          reason: 'Schema memory should grow after DDL + first queries');
+      expect(
+        after.sqliteSchemaBytes,
+        greaterThan(before.sqliteSchemaBytes),
+        reason: 'Schema memory should grow after DDL + first queries',
+      );
     });
 
     test('readersBusyAtSnapshot is false between operations', () async {

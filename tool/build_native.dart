@@ -89,9 +89,7 @@ ${_exportedSymbols.map((s) => '  $s').join('\n')}
     ..addExtension(
       CodeAssetExtension(
         targetOS: targetOS,
-        macOS: targetOS == OS.macOS
-            ? MacOSCodeConfig(targetVersion: 13)
-            : null,
+        macOS: targetOS == OS.macOS ? MacOSCodeConfig(targetVersion: 13) : null,
         targetArchitecture: targetArchitecture,
         linkModePreference: LinkModePreference.dynamic,
       ),
@@ -117,7 +115,12 @@ ${_exportedSymbols.map((s) => '  $s').join('\n')}
     },
     assetName: 'src/native/resqlite_bindings.dart',
     sources: [
-      p.join(packageRoot.path, 'third_party', 'sqlite3mc', 'sqlite3mc_amalgamation.c'),
+      p.join(
+        packageRoot.path,
+        'third_party',
+        'sqlite3mc',
+        'sqlite3mc_amalgamation.c',
+      ),
       p.join(packageRoot.path, 'native', 'resqlite_deps.c'),
       p.join(packageRoot.path, 'native', 'resqlite.c'),
     ],
@@ -145,9 +148,7 @@ ${_exportedSymbols.map((s) => '  $s').join('\n')}
         '@rpath/libresqlite.dylib',
       ],
     ],
-    libraries: [
-      if (targetOS == OS.android) 'm',
-    ],
+    libraries: [if (targetOS == OS.android) 'm'],
   );
 
   await library.run(

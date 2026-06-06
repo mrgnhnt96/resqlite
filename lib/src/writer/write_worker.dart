@@ -98,25 +98,6 @@ final class BatchResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Writer-specific FFI binding
-// ---------------------------------------------------------------------------
-
-@ffi.Native<
-  ffi.Pointer<ffi.Void> Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Pointer<ffi.Void>,
-    ffi.Pointer<ffi.Uint8>,
-    ffi.Int,
-  )
->(symbol: 'resqlite_stmt_acquire_writer', isLeaf: true)
-external ffi.Pointer<ffi.Void> _resqliteStmtAcquireWriter(
-  ffi.Pointer<ffi.Void> db,
-  ffi.Pointer<ffi.Void> sql,
-  ffi.Pointer<ffi.Uint8> params,
-  int paramCount,
-);
-
-// ---------------------------------------------------------------------------
 // Writer isolate entrypoint
 // ---------------------------------------------------------------------------
 
@@ -252,7 +233,7 @@ void _handleTxQuery(_WriterState state, QueryRequest msg) {
   final sqlNative = cachedSqlUtf8(msg.sql);
   final paramsNative = allocateParams(msg.params);
   try {
-    final stmt = _resqliteStmtAcquireWriter(
+    final stmt = resqliteStmtAcquireWriter(
       state.dbHandle,
       sqlNative.cast(),
       paramsNative,

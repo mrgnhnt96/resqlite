@@ -13,10 +13,10 @@ Future<void> main() async {
   ''');
 
   // Insert rows.
-  await db.execute(
-    'INSERT OR IGNORE INTO users(name, email) VALUES (?, ?)',
-    ['Ada Lovelace', 'ada@example.com'],
-  );
+  await db.execute('INSERT OR IGNORE INTO users(name, email) VALUES (?, ?)', [
+    'Ada Lovelace',
+    'ada@example.com',
+  ]);
 
   // Batch insert.
   await db.executeBatch(
@@ -35,10 +35,10 @@ Future<void> main() async {
 
   // Transactions — reads inside see uncommitted writes.
   final count = await db.transaction((tx) async {
-    await tx.execute(
-      'INSERT OR IGNORE INTO users(name, email) VALUES (?, ?)',
-      ['Hedy Lamarr', 'hedy@example.com'],
-    );
+    await tx.execute('INSERT OR IGNORE INTO users(name, email) VALUES (?, ?)', [
+      'Hedy Lamarr',
+      'hedy@example.com',
+    ]);
     final rows = await tx.select('SELECT COUNT(*) as c FROM users');
     return rows.first['c'] as int;
   });
@@ -51,10 +51,10 @@ Future<void> main() async {
   });
 
   // Trigger an update — the stream re-emits automatically.
-  await db.execute(
-    'INSERT OR IGNORE INTO users(name, email) VALUES (?, ?)',
-    ['Katherine Johnson', 'katherine@example.com'],
-  );
+  await db.execute('INSERT OR IGNORE INTO users(name, email) VALUES (?, ?)', [
+    'Katherine Johnson',
+    'katherine@example.com',
+  ]);
 
   // Give the stream a moment to deliver, then clean up.
   await Future<void>.delayed(const Duration(milliseconds: 100));

@@ -73,9 +73,7 @@ final class ReaderPool {
     List<Object?> parameters = const [],
   ]) async {
     final result = await _dispatch(SelectRequest(sql, parameters));
-    return resultSetFromMaterializedRows(
-      result as List<Map<String, Object?>>,
-    );
+    return resultSetFromMaterializedRows(result as List<Map<String, Object?>>);
   }
 
   /// Execute a query and capture read dependencies.

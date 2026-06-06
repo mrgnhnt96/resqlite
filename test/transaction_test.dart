@@ -27,16 +27,16 @@ final class _StreamProbe<T> {
 
   /// Waits for the [count]-th emission (1-indexed). Returns immediately if
   /// that emission already arrived.
-  Future<T> event(
-    int count, {
-    Duration timeout = const Duration(seconds: 2),
-  }) {
+  Future<T> event(int count, {Duration timeout = const Duration(seconds: 2)}) {
     if (_events.length >= count) return Future.value(_events[count - 1]);
     final completer = Completer<T>();
     _waiters.add(_EventWaiter(count, completer));
-    return completer.future.timeout(timeout, onTimeout: () {
-      throw TimeoutException('Timed out waiting for event $count');
-    });
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () {
+        throw TimeoutException('Timed out waiting for event $count');
+      },
+    );
   }
 
   /// Asserts that no additional stream event arrives within [duration].
@@ -111,10 +111,9 @@ void main() {
       });
 
       // Launched after txFuture but before it completes.
-      final executeFuture = db.execute(
-        'INSERT INTO items(name) VALUES (?)',
-        ['outside_tx'],
-      );
+      final executeFuture = db.execute('INSERT INTO items(name) VALUES (?)', [
+        'outside_tx',
+      ]);
 
       await Future.wait([txFuture, executeFuture]);
 
@@ -152,8 +151,7 @@ void main() {
       expect(rows, hasLength(2));
     });
 
-    test(
-        'close() during contention rejects queued writers without '
+    test('close() during contention rejects queued writers without '
         'hanging', () async {
       // Exercises the _ensureOpen() re-check inside _withWriteLock that
       // wakes after an awaited lock completes. Without it, writers queued
@@ -261,14 +259,11 @@ void main() {
       // the batch without its own BEGIN/COMMIT — the enclosing transaction
       // provides atomicity.
       await db.transaction((tx) async {
-        await db.executeBatch(
-          'INSERT INTO items(name) VALUES (?)',
-          [
-            ['a'],
-            ['b'],
-            ['c']
-          ],
-        );
+        await db.executeBatch('INSERT INTO items(name) VALUES (?)', [
+          ['a'],
+          ['b'],
+          ['c'],
+        ]);
         // All three should be visible within the transaction.
         final rows = await tx.select('SELECT name FROM items ORDER BY id');
         expect(rows, hasLength(3));
@@ -285,13 +280,10 @@ void main() {
     test('tx.executeBatch() works directly', () async {
       // Calling executeBatch on the Transaction instance itself.
       await db.transaction((tx) async {
-        await tx.executeBatch(
-          'INSERT INTO items(name) VALUES (?)',
-          [
-            ['x'],
-            ['y']
-          ],
-        );
+        await tx.executeBatch('INSERT INTO items(name) VALUES (?)', [
+          ['x'],
+          ['y'],
+        ]);
       });
 
       final rows = await db.select('SELECT name FROM items ORDER BY id');
@@ -307,65 +299,55 @@ void main() {
       // depending on which direction the shape drifts. Guard at the
       // Dart layer before any native allocation.
       expect(
-        () => db.executeBatch(
-          'INSERT INTO items(id, name) VALUES (?, ?)',
-          [
-            [1, 'a'],
-            [2], // short row
-          ],
-        ),
+        () => db.executeBatch('INSERT INTO items(id, name) VALUES (?, ?)', [
+          [1, 'a'],
+          [2], // short row
+        ]),
         throwsA(isA<ArgumentError>()),
       );
       expect(
-        () => db.executeBatch(
-          'INSERT INTO items(id, name) VALUES (?, ?)',
-          [
-            [1, 'a'],
-            [2, 'b', 'c'], // long row
-          ],
-        ),
+        () => db.executeBatch('INSERT INTO items(id, name) VALUES (?, ?)', [
+          [1, 'a'],
+          [2, 'b', 'c'], // long row
+        ]),
         throwsA(isA<ArgumentError>()),
       );
       // Uniform rows pass.
-      await db.executeBatch(
-        'INSERT INTO items(id, name) VALUES (?, ?)',
-        [
-          [1, 'a'],
-          [2, 'b'],
-        ],
-      );
+      await db.executeBatch('INSERT INTO items(id, name) VALUES (?, ?)', [
+        [1, 'a'],
+        [2, 'b'],
+      ]);
       final rows = await db.select('SELECT id, name FROM items ORDER BY id');
       expect(rows, hasLength(2));
     });
 
-    test('executeBatch inside nested transaction rolls back on throw',
-        () async {
-      // A batch insert inside a nested transaction that throws should
-      // roll back only the nested portion.
-      await db.transaction((tx) async {
-        await tx.execute('INSERT INTO items(name) VALUES (?)', ['outer']);
+    test(
+      'executeBatch inside nested transaction rolls back on throw',
+      () async {
+        // A batch insert inside a nested transaction that throws should
+        // roll back only the nested portion.
+        await db.transaction((tx) async {
+          await tx.execute('INSERT INTO items(name) VALUES (?)', ['outer']);
 
-        try {
-          await tx.transaction((inner) async {
-            await inner.executeBatch(
-              'INSERT INTO items(name) VALUES (?)',
-              [
+          try {
+            await tx.transaction((inner) async {
+              await inner.executeBatch('INSERT INTO items(name) VALUES (?)', [
                 ['inner_a'],
-                ['inner_b']
-              ],
-            );
-            throw StateError('rollback inner');
-          });
-        } on StateError {
-          // expected
-        }
-      });
+                ['inner_b'],
+              ]);
+              throw StateError('rollback inner');
+            });
+          } on StateError {
+            // expected
+          }
+        });
 
-      // Only the outer row survives.
-      final rows = await db.select('SELECT name FROM items ORDER BY id');
-      expect(rows, hasLength(1));
-      expect(rows[0]['name'], 'outer');
-    });
+        // Only the outer row survives.
+        final rows = await db.select('SELECT name FROM items ORDER BY id');
+        expect(rows, hasLength(1));
+        expect(rows[0]['name'], 'outer');
+      },
+    );
 
     test('executeBatch with empty paramSets is a no-op', () async {
       // Empty batch should not throw or insert anything.
@@ -405,10 +387,9 @@ void main() {
 
         try {
           await tx.transaction((inner) async {
-            await inner.execute(
-              'INSERT INTO items(name) VALUES (?)',
-              ['inner'],
-            );
+            await inner.execute('INSERT INTO items(name) VALUES (?)', [
+              'inner',
+            ]);
             throw StateError('rollback inner');
           });
         } on StateError {
@@ -426,31 +407,32 @@ void main() {
       expect(rows[0]['name'], 'outer');
     });
 
-    test('outer rollback undoes everything including committed inner',
-        () async {
-      // The inner transaction commits (RELEASE SAVEPOINT), but then the
-      // outer transaction throws — ROLLBACK undoes all changes including
-      // the inner's.
-      try {
-        await db.transaction((tx) async {
-          await tx.execute('INSERT INTO items(name) VALUES (?)', ['outer']);
+    test(
+      'outer rollback undoes everything including committed inner',
+      () async {
+        // The inner transaction commits (RELEASE SAVEPOINT), but then the
+        // outer transaction throws — ROLLBACK undoes all changes including
+        // the inner's.
+        try {
+          await db.transaction((tx) async {
+            await tx.execute('INSERT INTO items(name) VALUES (?)', ['outer']);
 
-          await tx.transaction((inner) async {
-            await inner.execute(
-              'INSERT INTO items(name) VALUES (?)',
-              ['inner'],
-            );
+            await tx.transaction((inner) async {
+              await inner.execute('INSERT INTO items(name) VALUES (?)', [
+                'inner',
+              ]);
+            });
+
+            throw StateError('rollback outer');
           });
+        } on StateError {
+          // expected
+        }
 
-          throw StateError('rollback outer');
-        });
-      } on StateError {
-        // expected
-      }
-
-      final rows = await db.select('SELECT name FROM items ORDER BY id');
-      expect(rows, isEmpty);
-    });
+        final rows = await db.select('SELECT name FROM items ORDER BY id');
+        expect(rows, isEmpty);
+      },
+    );
 
     test('transaction body exception rolls back and rethrows', () async {
       // A non-StateError exception should still trigger rollback and
@@ -475,16 +457,14 @@ void main() {
         await tx.execute('INSERT INTO items(name) VALUES (?)', ['level_0']);
 
         await tx.transaction((inner1) async {
-          await inner1.execute(
-            'INSERT INTO items(name) VALUES (?)',
-            ['level_1'],
-          );
+          await inner1.execute('INSERT INTO items(name) VALUES (?)', [
+            'level_1',
+          ]);
 
           await inner1.transaction((inner2) async {
-            await inner2.execute(
-              'INSERT INTO items(name) VALUES (?)',
-              ['level_2'],
-            );
+            await inner2.execute('INSERT INTO items(name) VALUES (?)', [
+              'level_2',
+            ]);
           });
         });
       });
@@ -505,16 +485,14 @@ void main() {
 
         try {
           await tx.transaction((inner1) async {
-            await inner1.execute(
-              'INSERT INTO items(name) VALUES (?)',
-              ['level_1'],
-            );
+            await inner1.execute('INSERT INTO items(name) VALUES (?)', [
+              'level_1',
+            ]);
 
             await inner1.transaction((inner2) async {
-              await inner2.execute(
-                'INSERT INTO items(name) VALUES (?)',
-                ['level_2'],
-              );
+              await inner2.execute('INSERT INTO items(name) VALUES (?)', [
+                'level_2',
+              ]);
             });
 
             throw StateError('rollback inner1');
@@ -624,9 +602,7 @@ void main() {
         await tx.execute('INSERT INTO child(pid) VALUES (?)', [1]);
       });
 
-      final rows = await db.select(
-        'SELECT pid FROM child ORDER BY id',
-      );
+      final rows = await db.select('SELECT pid FROM child ORDER BY id');
       expect(rows, hasLength(1));
       expect(rows[0]['pid'], 1);
     });
@@ -645,15 +621,13 @@ void main() {
     // execute paths. The unparameterized path used to hardcode zero.
     // =================================================================
 
-    test(
-        'db.execute without parameters returns accurate affectedRows '
+    test('db.execute without parameters returns accurate affectedRows '
         'and lastInsertId', () async {
       // Seed with a parameterized insert so we have a known
       // last_insert_rowid baseline.
-      final seed = await db.execute(
-        'INSERT INTO items(name) VALUES (?)',
-        ['seed'],
-      );
+      final seed = await db.execute('INSERT INTO items(name) VALUES (?)', [
+        'seed',
+      ]);
       expect(seed.affectedRows, 1);
       expect(seed.lastInsertId, greaterThan(0));
 
@@ -680,28 +654,29 @@ void main() {
       await db.execute('CREATE TABLE extra(id INTEGER PRIMARY KEY)');
     });
 
-    test('db.execute supports multi-statement SQL without parameters',
-        () async {
-      // The unparameterized path uses sqlite3_exec which walks the
-      // string statement-by-statement. The parameterized path only
-      // runs the first statement (sqlite3_prepare limitation). This
-      // test exists to document the distinction and prevent a
-      // refactor from collapsing the two paths.
-      await db.execute('''
+    test(
+      'db.execute supports multi-statement SQL without parameters',
+      () async {
+        // The unparameterized path uses sqlite3_exec which walks the
+        // string statement-by-statement. The parameterized path only
+        // runs the first statement (sqlite3_prepare limitation). This
+        // test exists to document the distinction and prevent a
+        // refactor from collapsing the two paths.
+        await db.execute('''
         CREATE TABLE a(id INTEGER PRIMARY KEY);
         CREATE TABLE b(id INTEGER PRIMARY KEY);
       ''');
-      // Both tables should exist.
-      await db.execute('INSERT INTO a(id) VALUES (1)');
-      await db.execute('INSERT INTO b(id) VALUES (1)');
-      final rowsA = await db.select('SELECT id FROM a');
-      final rowsB = await db.select('SELECT id FROM b');
-      expect(rowsA, hasLength(1));
-      expect(rowsB, hasLength(1));
-    });
+        // Both tables should exist.
+        await db.execute('INSERT INTO a(id) VALUES (1)');
+        await db.execute('INSERT INTO b(id) VALUES (1)');
+        final rowsA = await db.select('SELECT id FROM a');
+        final rowsB = await db.select('SELECT id FROM b');
+        expect(rowsA, hasLength(1));
+        expect(rowsB, hasLength(1));
+      },
+    );
 
-    test(
-        'ResqliteQueryException surfaces sqliteCode for constraint '
+    test('ResqliteQueryException surfaces sqliteCode for constraint '
         'violations', () async {
       // UNIQUE PK violation → SQLITE_CONSTRAINT = 19.
       await db.execute('INSERT INTO items(id, name) VALUES (?, ?)', [1, 'a']);
@@ -718,33 +693,33 @@ void main() {
       }
     });
 
-    test('ResqliteQueryException surfaces sqliteCode for batch failures',
-        () async {
-      await db
-          .execute('INSERT INTO items(id, name) VALUES (?, ?)', [1, 'seed']);
-      try {
-        await db.executeBatch(
-          'INSERT INTO items(id, name) VALUES (?, ?)',
-          [
+    test(
+      'ResqliteQueryException surfaces sqliteCode for batch failures',
+      () async {
+        await db.execute('INSERT INTO items(id, name) VALUES (?, ?)', [
+          1,
+          'seed',
+        ]);
+        try {
+          await db.executeBatch('INSERT INTO items(id, name) VALUES (?, ?)', [
             [2, 'a'],
             [1, 'b'], // duplicates the seed row → constraint violation
             [3, 'c'],
-          ],
-        );
-        fail('expected constraint violation');
-      } on ResqliteQueryException catch (e) {
-        expect(e.sqliteCode, 19);
-        expect(e.sql, 'INSERT INTO items(id, name) VALUES (?, ?)');
-      }
+          ]);
+          fail('expected constraint violation');
+        } on ResqliteQueryException catch (e) {
+          expect(e.sqliteCode, 19);
+          expect(e.sql, 'INSERT INTO items(id, name) VALUES (?, ?)');
+        }
 
-      // Entire batch rolls back atomically → only the seed row survives.
-      final rows = await db.select('SELECT id FROM items ORDER BY id');
-      expect(rows, hasLength(1));
-      expect(rows[0]['id'], 1);
-    });
+        // Entire batch rolls back atomically → only the seed row survives.
+        final rows = await db.select('SELECT id FROM items ORDER BY id');
+        expect(rows, hasLength(1));
+        expect(rows[0]['id'], 1);
+      },
+    );
 
-    test(
-        'ResqliteTransactionException surfaces sqliteCode and operation '
+    test('ResqliteTransactionException surfaces sqliteCode and operation '
         'on commit failure', () async {
       await db.execute('PRAGMA foreign_keys = ON');
       await db.execute('CREATE TABLE parent(id INTEGER PRIMARY KEY)');
@@ -769,7 +744,8 @@ void main() {
         expect(
           e.sqliteCode,
           anyOf(equals(19), equals(787)),
-          reason: 'expected SQLITE_CONSTRAINT or extended FOREIGN KEY code, '
+          reason:
+              'expected SQLITE_CONSTRAINT or extended FOREIGN KEY code, '
               'got ${e.sqliteCode}',
         );
       }
@@ -780,45 +756,44 @@ void main() {
     // of the body must not silently execute against the writer.
     // =================================================================
 
-    test('Transaction methods throw StateError after the body returns',
-        () async {
-      Transaction? leaked;
-      await db.transaction((tx) async {
-        leaked = tx;
-        await tx.execute('INSERT INTO items(name) VALUES (?)', ['ok']);
-      });
-      expect(leaked, isNotNull);
+    test(
+      'Transaction methods throw StateError after the body returns',
+      () async {
+        Transaction? leaked;
+        await db.transaction((tx) async {
+          leaked = tx;
+          await tx.execute('INSERT INTO items(name) VALUES (?)', ['ok']);
+        });
+        expect(leaked, isNotNull);
 
-      // Every entry point must reject.
-      expect(
-        () => leaked!.execute('INSERT INTO items(name) VALUES (?)', ['late']),
-        throwsA(isA<StateError>()),
-      );
-      expect(
-        () => leaked!.select('SELECT * FROM items'),
-        throwsA(isA<StateError>()),
-      );
-      expect(
-        () => leaked!.executeBatch(
-          'INSERT INTO items(name) VALUES (?)',
-          [
+        // Every entry point must reject.
+        expect(
+          () => leaked!.execute('INSERT INTO items(name) VALUES (?)', ['late']),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          () => leaked!.select('SELECT * FROM items'),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          () => leaked!.executeBatch('INSERT INTO items(name) VALUES (?)', [
             ['x'],
-            ['y']
-          ],
-        ),
-        throwsA(isA<StateError>()),
-      );
-      expect(
-        () => leaked!.transaction((_) async {}),
-        throwsA(isA<StateError>()),
-      );
+            ['y'],
+          ]),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          () => leaked!.transaction((_) async {}),
+          throwsA(isA<StateError>()),
+        );
 
-      // And the write that ran inside the body is still the only one
-      // persisted — the leaked calls never reached SQLite.
-      final rows = await db.select('SELECT name FROM items');
-      expect(rows, hasLength(1));
-      expect(rows[0]['name'], 'ok');
-    });
+        // And the write that ran inside the body is still the only one
+        // persisted — the leaked calls never reached SQLite.
+        final rows = await db.select('SELECT name FROM items');
+        expect(rows, hasLength(1));
+        expect(rows[0]['name'], 'ok');
+      },
+    );
 
     test('Leaked Transaction from rollback is also rejected', () async {
       // Even if the transaction body throws (so the outer tx rolls back),
@@ -875,37 +850,39 @@ void main() {
     // rather than pull the writer out from under the transaction body.
     // =================================================================
 
-    test('close() drains an in-flight read before freeing the handle',
-        () async {
-      // Prime the pool with a dummy read so `_readers` resolves in a
-      // single microtask on the real read below — we need the read to
-      // reach `pool.select` (and dispatch to a worker) *before* close
-      // runs, otherwise it will bail out at the pool's closed-check.
-      await db.select('SELECT 1');
+    test(
+      'close() drains an in-flight read before freeing the handle',
+      () async {
+        // Prime the pool with a dummy read so `_readers` resolves in a
+        // single microtask on the real read below — we need the read to
+        // reach `pool.select` (and dispatch to a worker) *before* close
+        // runs, otherwise it will bail out at the pool's closed-check.
+        await db.select('SELECT 1');
 
-      // Seed enough rows that the SELECT actually spends measurable
-      // time in C, giving close() a chance to race against the read.
-      // Without the reader-pool drain, resqliteClose(_handle) could
-      // run while the worker is still stepping over the SQLite handle,
-      // causing a use-after-free in native code.
-      final seeds = [
-        for (var i = 0; i < 5000; i++) ['row_$i'],
-      ];
-      await db.executeBatch('INSERT INTO items(name) VALUES (?)', seeds);
+        // Seed enough rows that the SELECT actually spends measurable
+        // time in C, giving close() a chance to race against the read.
+        // Without the reader-pool drain, resqliteClose(_handle) could
+        // run while the worker is still stepping over the SQLite handle,
+        // causing a use-after-free in native code.
+        final seeds = [
+          for (var i = 0; i < 5000; i++) ['row_$i'],
+        ];
+        await db.executeBatch('INSERT INTO items(name) VALUES (?)', seeds);
 
-      // Launch the read, then *yield to the macrotask queue* so its
-      // pending microtask (the `await _readers` continuation) runs and
-      // the read gets dispatched to a worker isolate. Only then do we
-      // call close() — at which point close's reader-pool drain should
-      // wait for the in-flight slot's pending completer before closing.
-      final readFuture = db.select('SELECT name FROM items ORDER BY id');
-      await Future<void>.delayed(Duration.zero);
-      final closeFuture = db.close();
+        // Launch the read, then *yield to the macrotask queue* so its
+        // pending microtask (the `await _readers` continuation) runs and
+        // the read gets dispatched to a worker isolate. Only then do we
+        // call close() — at which point close's reader-pool drain should
+        // wait for the in-flight slot's pending completer before closing.
+        final readFuture = db.select('SELECT name FROM items ORDER BY id');
+        await Future<void>.delayed(Duration.zero);
+        final closeFuture = db.close();
 
-      final rows = await readFuture.timeout(const Duration(seconds: 5));
-      expect(rows, hasLength(5000));
-      await closeFuture.timeout(const Duration(seconds: 5));
-    });
+        final rows = await readFuture.timeout(const Duration(seconds: 5));
+        expect(rows, hasLength(5000));
+        await closeFuture.timeout(const Duration(seconds: 5));
+      },
+    );
 
     test('close() drains an in-flight transaction body', () async {
       // Start a transaction whose body intentionally awaits an external
@@ -949,8 +926,9 @@ void main() {
       // spawns to settle before freeing the native handle, otherwise
       // the spawned isolates would hold a Pointer to a freed SQLite
       // connection and either leak or crash on first touch.
-      final spawnRaceDir =
-          await Directory.systemTemp.createTemp('resqlite_spawn_race_');
+      final spawnRaceDir = await Directory.systemTemp.createTemp(
+        'resqlite_spawn_race_',
+      );
       try {
         final db2 = await Database.open('${spawnRaceDir.path}/race.db');
         // No operations in between — the pool and writer are still
@@ -991,8 +969,7 @@ void main() {
     // in parallel without interference.
     // =================================================================
 
-    test(
-        'two databases run transactions concurrently without '
+    test('two databases run transactions concurrently without '
         'interference', () async {
       final dbB = await Database.open('${tempDir.path}/parallel.db');
       await dbB.execute(
@@ -1006,18 +983,12 @@ void main() {
         // completes on its own writer.
         final txA = db.transaction((tx) async {
           for (var i = 0; i < 10; i++) {
-            await tx.execute(
-              'INSERT INTO items(name) VALUES (?)',
-              ['A_$i'],
-            );
+            await tx.execute('INSERT INTO items(name) VALUES (?)', ['A_$i']);
           }
         });
         final txB = dbB.transaction((tx) async {
           for (var i = 0; i < 10; i++) {
-            await tx.execute(
-              'INSERT INTO items(name) VALUES (?)',
-              ['B_$i'],
-            );
+            await tx.execute('INSERT INTO items(name) VALUES (?)', ['B_$i']);
           }
         });
 
@@ -1039,8 +1010,7 @@ void main() {
       }
     });
 
-    test(
-        'nested transaction followed by commit failure leaves writer '
+    test('nested transaction followed by commit failure leaves writer '
         'depth at zero', () async {
       // Outer transaction with a successful inner savepoint; outer commit
       // fails at deferred FK check time. This exercises the full depth-0

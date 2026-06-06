@@ -1,4 +1,5 @@
-String fixtureHardwareResultsMarkdown({required String resultFile}) => '''
+String fixtureHardwareResultsMarkdown({required String resultFile}) =>
+    '''
 ## Devices
 
 | Device | CPU | OS | Dart | Date | By | Result File |

@@ -13,120 +13,8 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import 'exceptions.dart';
+import 'native/decode_bindings.dart';
 import 'row.dart';
-
-// ---------------------------------------------------------------------------
-// FFI bindings for the decode path
-// ---------------------------------------------------------------------------
-
-@ffi.Native<ffi.Int Function(ffi.Pointer<ffi.Void>)>(
-  symbol: 'sqlite3_column_count',
-  isLeaf: true,
-)
-external int sqlite3ColumnCount(ffi.Pointer<ffi.Void> stmt);
-
-@ffi.Native<ffi.Int Function(ffi.Pointer<ffi.Void>)>(
-  symbol: 'resqlite_effective_column_count',
-  isLeaf: true,
-)
-external int resqliteEffectiveColumnCount(ffi.Pointer<ffi.Void> stmt);
-
-@ffi.Native<ffi.Pointer<Utf8> Function(ffi.Pointer<ffi.Void>, ffi.Int)>(
-  symbol: 'resqlite_column_name',
-  isLeaf: true,
-)
-external ffi.Pointer<Utf8> resqliteColumnName(ffi.Pointer<ffi.Void> stmt, int n);
-
-@ffi.Native<
-  ffi.Int Function(ffi.Pointer<ffi.Void>, ffi.Int, ffi.Pointer<ffi.Uint8>)
->(symbol: 'resqlite_step_row', isLeaf: true)
-external int resqliteStepRow(
-  ffi.Pointer<ffi.Void> stmt,
-  int colCount,
-  ffi.Pointer<ffi.Uint8> cells,
-);
-
-@ffi.Native<
-  ffi.Int Function(ffi.Pointer<ffi.Void>, ffi.Int, ffi.Pointer<ffi.Uint8>)
->(symbol: 'resqlite_read_current_row', isLeaf: true)
-external int resqliteReadCurrentRow(
-  ffi.Pointer<ffi.Void> stmt,
-  int colCount,
-  ffi.Pointer<ffi.Uint8> cells,
-);
-
-@ffi.Native<
-  ffi.Int Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Int,
-    ffi.Pointer<ffi.Uint8>,
-    ffi.Pointer<ffi.Uint64>,
-  )
->(symbol: 'resqlite_read_current_row_hash', isLeaf: true)
-external int resqliteReadCurrentRowHash(
-  ffi.Pointer<ffi.Void> stmt,
-  int colCount,
-  ffi.Pointer<ffi.Uint8> cells,
-  ffi.Pointer<ffi.Uint64> hash,
-);
-
-@ffi.Native<
-  ffi.Int Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Int,
-    ffi.Pointer<ffi.Uint8>,
-    ffi.Pointer<ffi.Uint64>,
-  )
->(symbol: 'resqlite_step_row_hash', isLeaf: true)
-external int resqliteStepRowHash(
-  ffi.Pointer<ffi.Void> stmt,
-  int colCount,
-  ffi.Pointer<ffi.Uint8> cells,
-  ffi.Pointer<ffi.Uint64> hash,
-);
-
-// Hash-only pass ([EXP-075](../../experiments/075-native-hash-selectifchanged.md),
-// extended in [EXP-077](../../experiments/077-cheap-check-first-sweep.md)).
-//
-// Steps the bound stmt to DONE, hashes every cell's raw bytes in C,
-// resets at both ends, returns the hash.
-//
-// `lastRowCount` is -1 on the initial-query path (no prior count
-// cached), or the previous emission's row count. When set,
-// [EXP-077](../../experiments/077-cheap-check-first-sweep.md)
-// short-circuits: if the fresh step count exceeds the cached value,
-// stop folding cell bytes — the hashes can't match anyway. The function
-// still drains the remaining rows to report the fresh count via
-// `outRowCount`.
-//
-// Safe to call on a freshly-bound stmt (selectIfChanged first pass)
-// or on one that decodeQuery just drained (initial-query baseline).
-@ffi.Native<
-  ffi.Int64 Function(ffi.Pointer<ffi.Void>, ffi.Int, ffi.Pointer<ffi.Int>)
->(symbol: 'resqlite_query_hash', isLeaf: true)
-external int resqliteQueryHash(
-  ffi.Pointer<ffi.Void> stmt,
-  int lastRowCount,
-  ffi.Pointer<ffi.Int> outRowCount,
-);
-
-@ffi.Native<ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>)>(
-  symbol: 'sqlite3_db_handle',
-  isLeaf: true,
-)
-external ffi.Pointer<ffi.Void> sqlite3DbHandle(ffi.Pointer<ffi.Void> stmt);
-
-@ffi.Native<ffi.Pointer<Utf8> Function(ffi.Pointer<ffi.Void>)>(
-  symbol: 'sqlite3_errmsg',
-  isLeaf: true,
-)
-external ffi.Pointer<Utf8> sqlite3Errmsg(ffi.Pointer<ffi.Void> db);
-
-@ffi.Native<ffi.Int Function(ffi.Pointer<ffi.Void>)>(
-  symbol: 'strlen',
-  isLeaf: true,
-)
-external int cStrlen(ffi.Pointer<ffi.Void> s);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -221,11 +109,7 @@ Never _throwStepException(ffi.Pointer<ffi.Void> stmt, String sql, int rc) {
     _ when db == ffi.nullptr => 'sqlite3_step failed with code $rc',
     _ => sqlite3Errmsg(db).toDartString(),
   };
-  throw ResqliteQueryException(
-    message,
-    sql: sql,
-    sqliteCode: rc,
-  );
+  throw ResqliteQueryException(message, sql: sql, sqliteCode: rc);
 }
 
 /// Per-worker schema cache with LRU eviction. Column names for the same SQL
@@ -482,12 +366,7 @@ RawQueryResult decodeQuery(ffi.Pointer<ffi.Void> stmt, String sql) {
   }
 
   if (needsCurrentRowRead) {
-    final rc = resqliteReadCurrentRowHash(
-      stmt,
-      colCount,
-      buf,
-      initialHashSlot,
-    );
+    final rc = resqliteReadCurrentRowHash(stmt, colCount, buf, initialHashSlot);
     if (rc != sqliteRow) {
       _throwStepException(stmt, sql, rc);
     }

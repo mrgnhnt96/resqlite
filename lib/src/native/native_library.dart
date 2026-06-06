@@ -74,11 +74,10 @@ String readerErrmsg(Pointer<Void> dbHandle, int readerId) {
 }
 
 int readerLastError(Pointer<Void> dbHandle, int readerId) {
-  return installedNativeLibrary
-      .lookupFunction<
-        Int Function(Pointer<Void>, Int),
-        int Function(Pointer<Void>, int)
-      >('resqlite_reader_last_error')(dbHandle, readerId);
+  return installedNativeLibrary.lookupFunction<
+    Int Function(Pointer<Void>, Int),
+    int Function(Pointer<Void>, int)
+  >('resqlite_reader_last_error')(dbHandle, readerId);
 }
 
 /// Absolute path passed to the last successful [install], if any.

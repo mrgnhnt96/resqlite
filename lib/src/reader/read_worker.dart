@@ -201,30 +201,6 @@ void readerEntrypoint(List<Object?> args) {
 }
 
 // ---------------------------------------------------------------------------
-// Reader-specific FFI bindings
-// ---------------------------------------------------------------------------
-
-// Dedicated reader variant — no pool mutex.
-@ffi.Native<
-  ffi.Pointer<ffi.Void> Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Int,
-    ffi.Pointer<ffi.Void>,
-    ffi.Pointer<ffi.Uint8>,
-    ffi.Int,
-    ffi.Pointer<ffi.Int32>,
-  )
->(symbol: 'resqlite_stmt_acquire_on')
-external ffi.Pointer<ffi.Void> _resqliteStmtAcquireOn(
-  ffi.Pointer<ffi.Void> db,
-  int readerId,
-  ffi.Pointer<ffi.Void> sql,
-  ffi.Pointer<ffi.Uint8> params,
-  int paramCount,
-  ffi.Pointer<ffi.Int32> outRc,
-);
-
-// ---------------------------------------------------------------------------
 // Query execution
 // ---------------------------------------------------------------------------
 
@@ -251,7 +227,7 @@ T _withAcquiredStmt<T>(
   final paramsNative = allocateParams(parameters);
   final outRc = calloc<ffi.Int32>();
   try {
-    final stmt = _resqliteStmtAcquireOn(
+    final stmt = resqliteStmtAcquireOn(
       dbHandle,
       readerId,
       sqlNative.cast(),

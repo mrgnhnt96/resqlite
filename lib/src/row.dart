@@ -21,9 +21,8 @@ ResultSet resultSetFromMaterializedRows(List<Map<String, Object?>> maps) {
 /// Created once per query and reused by every [Row]. Contains the column
 /// names and a precomputed name-to-index map for O(1) lookups.
 final class RowSchema {
-  RowSchema(this.names) : _indexByName = {
-    for (var i = 0; i < names.length; i++) names[i]: i,
-  };
+  RowSchema(this.names)
+    : _indexByName = {for (var i = 0; i < names.length; i++) names[i]: i};
 
   /// Column names in query order, matching the SELECT clause.
   final List<String> names;
@@ -76,11 +75,13 @@ final class ResultSet with ListMixin<Row> {
     final rows = <List<Object?>>[];
     for (var r = 0; r < _rowCount; r++) {
       final offset = r * colCount;
-      rows.add(List<Object?>.generate(
-        colCount,
-        (c) => _values[offset + c],
-        growable: false,
-      ));
+      rows.add(
+        List<Object?>.generate(
+          colCount,
+          (c) => _values[offset + c],
+          growable: false,
+        ),
+      );
     }
     return rows;
   }
@@ -161,8 +162,7 @@ final class Row with MapMixin<String, Object?> {
       throw UnsupportedError('Unmodifiable row');
 
   @override
-  Object? remove(Object? key) =>
-      throw UnsupportedError('Unmodifiable row');
+  Object? remove(Object? key) => throw UnsupportedError('Unmodifiable row');
 
   @override
   void clear() => throw UnsupportedError('Unmodifiable row');

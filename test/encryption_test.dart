@@ -123,10 +123,11 @@ void main() {
       );
 
       // Batch write.
-      await db.executeBatch(
-        'INSERT INTO items(name, value) VALUES (?, ?)',
-        [['alice', 1.5], ['bob', 2.5], ['charlie', 3.5]],
-      );
+      await db.executeBatch('INSERT INTO items(name, value) VALUES (?, ?)', [
+        ['alice', 1.5],
+        ['bob', 2.5],
+        ['charlie', 3.5],
+      ]);
 
       // Select.
       final rows = await db.select('SELECT * FROM items ORDER BY id');
@@ -138,7 +139,10 @@ void main() {
 
       // Transaction.
       final count = await db.transaction((tx) async {
-        await tx.execute('INSERT INTO items(name, value) VALUES (?, ?)', ['dave', 4.5]);
+        await tx.execute('INSERT INTO items(name, value) VALUES (?, ?)', [
+          'dave',
+          4.5,
+        ]);
         final r = await tx.select('SELECT COUNT(*) as cnt FROM items');
         return r[0]['cnt'] as int;
       });

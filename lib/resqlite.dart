@@ -10,7 +10,12 @@ export 'src/exceptions.dart'
         ResqliteQueryException,
         ResqliteTransactionException;
 export 'src/dependency_tracking.dart'
-    show TableDependencies, TableDependency, TableColumnDependency;
+    show
+        FixedTableDependencies,
+        TableDependencies,
+        TableDependency,
+        TableColumnDependency,
+        UnknownTableDependencies;
 export 'src/native/native_library.dart'
     show defaultLibraryFileName, install, isInstalled;
 export 'src/native/resqlite_bindings.dart' show WriteResult;

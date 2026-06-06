@@ -21,13 +21,16 @@ Future<void> _seed(Database db, int count) async {
   await db.executeBatch(
     'INSERT INTO items(name, category, price, quantity, description) '
     'VALUES (?, ?, ?, ?, ?)',
-    List.generate(count, (i) => [
-      'item_$i',
-      'cat_${i % 10}',
-      (i * 1.5),
-      i * 10,
-      'A medium-length description for item number $i to add some text bulk.',
-    ]),
+    List.generate(
+      count,
+      (i) => [
+        'item_$i',
+        'cat_${i % 10}',
+        (i * 1.5),
+        i * 10,
+        'A medium-length description for item number $i to add some text bulk.',
+      ],
+    ),
   );
 }
 
@@ -150,8 +153,9 @@ void main() {
       await _seed(db, 100);
       final futures = List.generate(
         20,
-        (i) =>
-            db.selectBytes('SELECT * FROM items WHERE category = ?', ['cat_$i']),
+        (i) => db.selectBytes('SELECT * FROM items WHERE category = ?', [
+          'cat_$i',
+        ]),
       );
       final results = await Future.wait(futures);
       for (var i = 0; i < 10; i++) {
@@ -164,10 +168,7 @@ void main() {
       await _seed(db, 3000);
       // 8 concurrent queries, each ~321 KB — all trigger sacrifice.
       // Pool must respawn workers between queries.
-      final futures = List.generate(
-        8,
-        (_) => db.select('SELECT * FROM items'),
-      );
+      final futures = List.generate(8, (_) => db.select('SELECT * FROM items'));
       final results = await Future.wait(futures);
       for (final rows in results) {
         expect(rows, hasLength(3000));
@@ -251,12 +252,16 @@ void main() {
       await _seed(db, 100);
 
       // Stream setup uses selectWithDeps internally.
-      final stream = db.stream('SELECT * FROM items WHERE category = ?', ['cat_0']);
+      final stream = db.stream('SELECT * FROM items WHERE category = ?', [
+        'cat_0',
+      ]);
       final first = await stream.first;
       expect(first, hasLength(10));
 
       // Regular selects should still work after selectWithDeps exercised the pool.
-      final rows = await db.select('SELECT * FROM items WHERE category = ?', ['cat_1']);
+      final rows = await db.select('SELECT * FROM items WHERE category = ?', [
+        'cat_1',
+      ]);
       expect(rows, hasLength(10));
     });
 
@@ -276,10 +281,7 @@ void main() {
       final write = db.executeBatch(
         'INSERT INTO items(name, category, price, quantity, description) '
         'VALUES (?, ?, ?, ?, ?)',
-        List.generate(50, (i) => [
-          'new_$i', 'cat_new', 0.0, 0,
-          'new item',
-        ]),
+        List.generate(50, (i) => ['new_$i', 'cat_new', 0.0, 0, 'new item']),
       );
 
       final results = await Future.wait(reads);
@@ -289,8 +291,11 @@ void main() {
       // never a partial state, because WAL provides snapshot isolation.
       for (final rows in results) {
         final count = rows[0]['c'] as int;
-        expect(count == 100 || count == 150, isTrue,
-            reason: 'got count=$count, expected 100 or 150');
+        expect(
+          count == 100 || count == 150,
+          isTrue,
+          reason: 'got count=$count, expected 100 or 150',
+        );
       }
     });
 
@@ -328,9 +333,7 @@ void main() {
       await db.executeBatch(
         'INSERT INTO items(name, category, price, quantity, description) '
         'VALUES (?, ?, ?, ?, ?)',
-        List.generate(1000, (i) => [
-          'extra_$i', 'cat_0', 0.0, 0, 'extra row',
-        ]),
+        List.generate(1000, (i) => ['extra_$i', 'cat_0', 0.0, 0, 'extra row']),
       );
       final large = await db.select('SELECT * FROM items');
       expect(large, hasLength(3000));
@@ -340,10 +343,9 @@ void main() {
       await _seed(db, 50);
       // 100 sequential queries — tests that workers are reused efficiently.
       for (var i = 0; i < 100; i++) {
-        final rows = await db.select(
-          'SELECT * FROM items WHERE id = ?',
-          [i % 50 + 1],
-        );
+        final rows = await db.select('SELECT * FROM items WHERE id = ?', [
+          i % 50 + 1,
+        ]);
         expect(rows, hasLength(1), reason: 'query $i');
       }
     });
@@ -394,8 +396,7 @@ void main() {
             // selectBytes (small, SendPort path)
             futures.add(
               db.selectBytes('SELECT * FROM items LIMIT 100').then((bytes) {
-                final decoded =
-                    jsonDecode(String.fromCharCodes(bytes)) as List;
+                final decoded = jsonDecode(String.fromCharCodes(bytes)) as List;
                 expect(decoded, hasLength(100));
               }),
             );
