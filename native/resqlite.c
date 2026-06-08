@@ -627,6 +627,8 @@ static int ensure_writer_open(resqlite_db* db) {
 
 resqlite_db* resqlite_open(const char* path, int max_readers,
                           const char* encryption_key_hex) {
+    sqlite3_initialize();
+
     if (max_readers <= 0) max_readers = 8;
     if (max_readers > MAX_READERS) max_readers = MAX_READERS;
 
