@@ -45,13 +45,15 @@ Future<void> main() async {
     print('OK: ${cols.rows}');
 
     print('stream with param...');
-    final stream = db.streamQuery('SELECT * FROM t WHERE name = ?', ['a']);
+    final stream = delegate.streamQuery('SELECT * FROM t WHERE name = ?', [
+      'a',
+    ]);
     await stream.first;
     print('stream OK');
 
     print('ALL PASSED');
   } finally {
-    await db.close();
+    await delegate.close();
     dir.deleteSync(recursive: true);
   }
 }
