@@ -17,7 +17,7 @@ export 'src/dependency_tracking.dart'
         TableColumnDependency,
         UnknownTableDependencies;
 export 'src/native/native_library.dart'
-    show defaultLibraryFileName, install, isInstalled;
+    show defaultLibraryFileName, install, installedNativeLibrary, isInstalled;
 export 'src/native/resqlite_bindings.dart' show WriteResult;
 export 'src/row.dart'
     show ResultSet, Row, RowSchema, resultSetFromMaterializedRows;
