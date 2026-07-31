@@ -200,10 +200,11 @@ const _defines = {
   'SQLITE_THREADSAFE': '2',
   'SQLITE_ENABLE_BATCH_ATOMIC_WRITE': null,
   'SQLITE_ENABLE_FTS5': null,
-  // Required: DeleteOneBody always emits `DELETE … LIMIT 1`, and raindrop
-  // documents LIMIT-on-DELETE as supported. Without this flag the SQL is a
-  // syntax error and every DELETE /db returns 500.
-  'SQLITE_ENABLE_UPDATE_DELETE_LIMIT': null,
+  // Do NOT set SQLITE_ENABLE_UPDATE_DELETE_LIMIT here. The sqlite3mc
+  // amalgamation's lemon parser was generated without that feature; defining
+  // the flag at C compile time only flips compileoption_used — DELETE/UPDATE
+  // … LIMIT still syntax-errors. Zonai rewrites limited deletes to
+  // `WHERE pk IN (SELECT pk … LIMIT n)` instead (see TableOperations.delete).
   'SQLITE_ENABLE_MATH_FUNCTIONS': null,
   'SQLITE_ENABLE_PREUPDATE_HOOK': null,
   'SQLITE_ENABLE_STAT4': null,
