@@ -5,6 +5,7 @@
 //
 // Pass --check to exit 1 when the library is missing (for CI).
 
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
@@ -54,7 +55,6 @@ Future<void> main(List<String> args) async {
   }
 
   String? linkerScript;
-  String? moduleDefFile;
   if (targetOS == OS.linux) {
     linkerScript = p.join(outputDirectory.path, 'resqlite.map');
     await File(linkerScript).writeAsString('''
@@ -64,17 +64,6 @@ ${_exportedSymbols.map((s) => '    $s;').join('\n')}
   local:
     *;
 };
-''');
-  } else if (targetOS == OS.windows) {
-    // MSVC does not export non-static symbols from DLLs by default. Dart's
-    // @Native fallback resolves via process lookup, so resqlite_open and the
-    // other FFI entrypoints must be exported explicitly (mirrors the Linux
-    // version script below).
-    moduleDefFile = p.join(outputDirectory.path, 'resqlite.def');
-    await File(moduleDefFile).writeAsString('''
-LIBRARY resqlite
-EXPORTS
-${_exportedSymbols.map((s) => '  $s').join('\n')}
 ''');
   }
 
@@ -128,12 +117,20 @@ ${_exportedSymbols.map((s) => '  $s').join('\n')}
       p.join(packageRoot.path, 'third_party', 'sqlite3mc'),
       p.join(packageRoot.path, 'native'),
     ],
+    // Windows: force-include so sqlite3mc_amalgamation.c sees
+    // SQLITE_API=__declspec(dllexport). Do NOT pass /DEF: via [flags] —
+    // CBuilder.flags are compiler flags, and MSVC parses `/DEF:path` as
+    // `/D EF:path` (warning C5102), silently dropping the module-definition
+    // file. resqlite_* already export via RESQLITE_API in resqlite.h.
+    forcedIncludes: [
+      if (targetOS == OS.windows)
+        p.join(packageRoot.path, 'native', 'windows_sqlite_api.h'),
+    ],
     defines: _defines,
     flags: [
       if (targetOS == OS.windows) ...[
         // MSVC requires this alongside /std:c17 for <stdatomic.h> in resqlite.c.
         '/experimental:c11atomics',
-        if (moduleDefFile != null) '/DEF:$moduleDefFile',
       ],
       if (targetOS == OS.linux) ...[
         '-Wl,-Bsymbolic',
@@ -178,7 +175,45 @@ ${_exportedSymbols.map((s) => '  $s').join('\n')}
     exit(1);
   }
 
+  _assertRequiredExports(outputFile);
   stdout.writeln('Wrote ${outputFile.path}');
+}
+
+/// Symbols package:sqlite3 and resqlite FFI bindings need at process start.
+///
+/// Kept small on purpose: the full [_exportedSymbols] list includes optional
+/// SQLite APIs (e.g. column metadata) that are not compiled into this build.
+/// Looking those up would false-fail a correct library. These canaries are the
+/// ones that failed in CI when Windows exports were silently dropped.
+void _assertRequiredExports(File libraryFile) {
+  const required = [
+    'sqlite3_libversion_number',
+    'sqlite3_open_v2',
+    'sqlite3_initialize',
+    'resqlite_open',
+  ];
+
+  final lib = DynamicLibrary.open(libraryFile.path);
+  final missing = <String>[
+    for (final symbol in required)
+      if (!lib.providesSymbol(symbol)) symbol,
+  ];
+
+  if (missing.isEmpty) {
+    stdout.writeln(
+      'Verified required exports in ${p.basename(libraryFile.path)}: '
+      '${required.join(', ')}',
+    );
+    return;
+  }
+
+  stderr.writeln(
+    '${libraryFile.path} is missing required exported symbol(s): '
+    '${missing.join(', ')}.\n'
+    'On Windows this usually means SQLITE_API was not __declspec(dllexport) '
+    'when compiling sqlite3mc_amalgamation.c (see native/windows_sqlite_api.h).',
+  );
+  exit(1);
 }
 
 const _defines = {
