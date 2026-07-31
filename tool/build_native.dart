@@ -200,6 +200,10 @@ const _defines = {
   'SQLITE_THREADSAFE': '2',
   'SQLITE_ENABLE_BATCH_ATOMIC_WRITE': null,
   'SQLITE_ENABLE_FTS5': null,
+  // Required: DeleteOneBody always emits `DELETE … LIMIT 1`, and raindrop
+  // documents LIMIT-on-DELETE as supported. Without this flag the SQL is a
+  // syntax error and every DELETE /db returns 500.
+  'SQLITE_ENABLE_UPDATE_DELETE_LIMIT': null,
   'SQLITE_ENABLE_MATH_FUNCTIONS': null,
   'SQLITE_ENABLE_PREUPDATE_HOOK': null,
   'SQLITE_ENABLE_STAT4': null,
