@@ -5,6 +5,8 @@ import 'package:resqlite/resqlite.dart';
 import 'package:resqlite/src/reader/reader_pool.dart';
 import 'package:test/test.dart';
 
+import 'native_library_setup.dart';
+
 /// Seed a wide table (6 columns) with [count] rows.
 /// Each row is ~107 bytes. Sacrifice threshold is 256 KB (~2450 rows).
 Future<void> _seed(Database db, int count) async {
@@ -35,6 +37,8 @@ Future<void> _seed(Database db, int count) async {
 }
 
 void main() {
+  setUpAll(setUpResqliteNative);
+
   group('ReaderPool', () {
     late Directory tempDir;
     late Database db;

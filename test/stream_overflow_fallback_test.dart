@@ -19,6 +19,8 @@ import 'dart:io';
 import 'package:resqlite/resqlite.dart';
 import 'package:test/test.dart';
 
+import 'native_library_setup.dart';
+
 const int _capReadTables = 64;
 const int _capDirtyTables = 64;
 
@@ -67,6 +69,8 @@ final class _StreamProbe<T> {
 }
 
 void main() {
+  setUpAll(setUpResqliteNative);
+
   group('Reliability fallback under overflow', () {
     late Directory tempDir;
     late Database db;

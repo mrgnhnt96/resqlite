@@ -26,7 +26,11 @@ import 'dart:io';
 import 'package:resqlite/resqlite.dart';
 import 'package:test/test.dart';
 
+import 'native_library_setup.dart';
+
 void main() {
+  setUpAll(setUpResqliteNative);
+
   group('Stream invalidation coalescing', () {
     late Directory tempDir;
     late Database db;

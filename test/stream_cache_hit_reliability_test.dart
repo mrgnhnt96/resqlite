@@ -17,6 +17,8 @@ import 'dart:io';
 import 'package:resqlite/resqlite.dart';
 import 'package:test/test.dart';
 
+import 'native_library_setup.dart';
+
 const int _capReadTables = 64;
 
 final class _EventWaiter<T> {
@@ -64,6 +66,8 @@ final class _StreamProbe<T> {
 }
 
 void main() {
+  setUpAll(setUpResqliteNative);
+
   group('Cache-hit reliability preservation', () {
     late Directory tempDir;
     late Database db;

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:resqlite/resqlite.dart';
 import 'package:test/test.dart';
 
+import 'native_library_setup.dart';
+
 // 256-bit key (32 bytes = 64 hex chars).
 const _testKey =
     'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
@@ -11,6 +13,8 @@ const _wrongKey =
     'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
 
 void main() {
+  setUpAll(setUpResqliteNative);
+
   group('Encryption', () {
     late Directory tempDir;
 

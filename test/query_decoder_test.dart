@@ -11,6 +11,8 @@ import 'package:resqlite/src/native/resqlite_bindings.dart';
 import 'package:resqlite/src/query_decoder.dart';
 import 'package:test/test.dart';
 
+import 'native_library_setup.dart';
+
 @ffi.Native<
   ffi.Pointer<ffi.Void> Function(
     ffi.Pointer<ffi.Void>,
@@ -27,6 +29,8 @@ external ffi.Pointer<ffi.Void> resqliteStmtAcquireWriter(
 );
 
 void main() {
+  setUpAll(setUpResqliteNative);
+
   test('one-pass initial stream hash matches hash-only pass', () {
     final dir = Directory.systemTemp.createTempSync('resqlite_decoder_test_');
     final pathNative = '${dir.path}/hash.db'.toNativeUtf8();

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:resqlite/resqlite.dart';
 import 'package:test/test.dart';
 
+import 'native_library_setup.dart';
+
 /// Deterministic stream probe — avoids timing-sensitive Future.delayed waits.
 /// Collects emissions and lets tests await the Nth event by count, or assert
 /// that no further events arrive within a timeout window.
@@ -59,6 +61,8 @@ final class _EventWaiter<T> {
 }
 
 void main() {
+  setUpAll(setUpResqliteNative);
+
   group('Write lock and nested transactions', () {
     late Directory tempDir;
     late Database db;

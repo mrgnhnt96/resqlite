@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:resqlite/resqlite.dart';
 import 'package:test/test.dart';
 
+import 'native_library_setup.dart';
+
 final class _EventWaiter<T> {
   _EventWaiter(this.count, this.completer);
 
@@ -83,6 +85,8 @@ Future<int> _streamLength(Database db) async {
 }
 
 void main() {
+  setUpAll(setUpResqliteNative);
+
   group('Database.stream', () {
     late Directory tempDir;
     late Database db;
