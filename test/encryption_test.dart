@@ -67,37 +67,45 @@ void main() {
       await db2.close();
     });
 
-    test(
-      'wrong key fails to open encrypted database',
-      () async {
-        final path = '${tempDir.path}/wrongkey.db';
+    // The old version of this test asserted that `Database.open` THROWS on a
+    // wrong key. It does not, and that is correct SQLite behaviour rather than
+    // a defect: sqlite3mc does not verify the key at open time, it fails on the
+    // first page read. Asserting on open() therefore tested a promise the
+    // library never made, and it failed the moment this suite first ran (it had
+    // never run before 08ef516 installed the native library).
+    //
+    // MEASURED 2026-08-14 before rewriting it, because "wrong key opens the
+    // database" is not something to reason about from the armchair:
+    //
+    //     open():  SUCCEEDED (no throw)
+    //     read():  ResqliteQueryException, SQLite code 14 (SQLITE_CANTOPEN)
+    //
+    // So the security property holds -- the DATA is unreachable -- and it is
+    // the assertion that was wrong. The property worth pinning is the one that
+    // protects the secret, so that is what this asserts now: a wrong key gets
+    // you a handle and nothing else.
+    test('wrong key cannot read an encrypted database', () async {
+      final path = '${tempDir.path}/wrongkey.db';
 
-        // Create encrypted database.
-        final db1 = await Database.open(path, encryptionKey: _testKey);
-        await db1.execute('CREATE TABLE t(id INTEGER PRIMARY KEY)');
-        await db1.close();
+      final db1 = await Database.open(path, encryptionKey: _testKey);
+      await db1.execute('CREATE TABLE t(id INTEGER PRIMARY KEY, secret TEXT)');
+      await db1.execute('INSERT INTO t(secret) VALUES (?)', ['top_secret']);
+      await db1.close();
 
-        // Try to open with wrong key — should fail.
-        expect(
-          () => Database.open(path, encryptionKey: _wrongKey),
-          throwsA(isA<ResqliteConnectionException>()),
-        );
-      },
-      skip:
-          'QUARANTINED 2026-08-14 -- FAILS, AND THE FAILURE IS SECURITY-SHAPED. '
-          'Opening an encrypted database with the WRONG KEY returned a Database '
-          'instead of throwing ResqliteConnectionException. Read that literally '
-          'before assuming the worst OR the best: the likeliest explanation is '
-          'that the cipher is not compiled into the library this suite builds '
-          '(tool/build_native.dart --output .dart_tool/lib), in which case '
-          'nothing is encrypted here and the wrong key trivially opens a plain '
-          'file -- a TEST-HARNESS defect. The other explanation is that key '
-          'verification does not happen in the product, which would be a real '
-          'vulnerability. THOSE ARE NOT THE SAME BUG and this skip does not '
-          'decide between them. Establish which before shipping anything that '
-          'relies on resqlite encryption. Tracked as showrunner leaf '
-          'resqlite-stream-segv.',
-    );
+      final db2 = await Database.open(path, encryptionKey: _wrongKey);
+      addTearDown(() async {
+        try {
+          await db2.close();
+        } on Object {
+          // The handle never really opened; closing it is best-effort.
+        }
+      });
+
+      await expectLater(
+        () => db2.select('SELECT secret FROM t'),
+        throwsA(isA<ResqliteException>()),
+      );
+    });
 
     test('encrypted file has no SQLite header (proves encryption)', () async {
       final path = '${tempDir.path}/noheader.db';
