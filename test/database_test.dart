@@ -278,11 +278,6 @@ void main() {
           throwsA(isA<ResqliteQueryException>()),
         );
       },
-      skip:
-          'QUARANTINED 2026-08-14 -- fails with ResqliteQueryException: reader '
-          'not open, on macOS locally AND on Linux CI. A reader-lifecycle bug, '
-          'NOT the missing-native-library problem 08ef516 fixed: this file '
-          'already installed the library. Tracked with resqlite-stream-segv.',
     );
 
     test('repeated cached selects preserve text and blob parameters', () async {

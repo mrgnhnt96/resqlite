@@ -513,11 +513,16 @@ static int _wal_check_cb(void* arg, int ncols, char** values, char** names) {
 static sqlite3* open_connection(const char* path, int is_reader,
                                  const char* encryption_key_hex) {
     sqlite3* db = NULL;
-    // Reader pool connections use READWRITE (no CREATE), not READONLY.
+    // Readers and the writer open identically: READWRITE|CREATE, never READONLY.
     // READONLY handles segfault when stepping queries that touch table pages.
-    int flags = is_reader
-        ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX)
-        : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX);
+    //
+    // Readers need CREATE for the same reason the writer does. SQLite defers
+    // creating the file until a first write, so without CREATE a reader opening
+    // a database nothing had written to yet got SQLITE_CANTOPEN and surfaced as
+    // "reader not open" -- masking the real answer, which is that the database is
+    // empty and the table does not exist. This cannot create a stray file: the
+    // path is db->path, the very file the writer would create.
+    int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX;
 
     int rc = sqlite3_open_v2(path, &db, flags, NULL);
     if (rc != SQLITE_OK) {

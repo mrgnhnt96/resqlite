@@ -29,11 +29,6 @@ void main() {
         await tempDir.delete(recursive: true);
       }
     },
-    skip:
-        'QUARANTINED 2026-08-14 -- fails with ResqliteQueryException: reader not '
-        'open, on macOS locally AND on Linux CI. Same reader-lifecycle bug as '
-        'database_test select-rejects-too-few-parameters. Tracked with '
-        'resqlite-stream-segv.',
   );
 
   test('reader bind failure uses reader sqlite error message', () async {
