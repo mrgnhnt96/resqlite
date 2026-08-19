@@ -19,13 +19,6 @@ void main() {
         ]);
         expect(resultSet.first.values, ['001_init', 'abc123']);
       },
-      skip:
-          'QUARANTINED 2026-08-14 -- FAILS: expected [001_init, abc123], got an '
-          'empty _RowValues. toPositionalRows returns nothing when the schema '
-          'names are empty. A real decode bug, NOT the missing-native-library '
-          'problem 08ef516 fixed -- this file does not open a database at all. '
-          'Newly visible because this package never ran until 08ef516. Tracked '
-          'as showrunner leaf resqlite-stream-segv.',
     );
 
     test('toPositionalRows uses schema column count when present', () {

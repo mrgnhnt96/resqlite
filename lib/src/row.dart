@@ -67,6 +67,25 @@ final class ResultSet with ListMixin<Row> {
       ? 0
       : _values.length ~/ _rowCount;
 
+  /// The schema [Row] views are built against.
+  ///
+  /// A result set can carry values while its schema carries no names — SQLite
+  /// does not always report column names, and [_columnCount] already derives
+  /// the real width from the flat values list. [Row] reads its width from the
+  /// schema alone, so an empty one made every row look zero-length: `values`
+  /// yielded nothing and `length` was 0, for a row that plainly had values.
+  ///
+  /// Columns are named by position in that case, which is the convention
+  /// `materializeQueryRows` already uses for exactly this input. That keeps a
+  /// row internally consistent — `length`, `keys`, `values` and `entries` all
+  /// agree — and leaves [columnNames] empty, since the *result set* genuinely
+  /// has no names to report.
+  late final RowSchema _rowSchema = _schema.columnCount != 0
+      ? _schema
+      : RowSchema(
+          List<String>.generate(_columnCount, (i) => '$i', growable: false),
+        );
+
   /// All rows as positional value lists.
   List<List<Object?>> toPositionalRows() {
     final colCount = _columnCount;
@@ -95,7 +114,7 @@ final class ResultSet with ListMixin<Row> {
   @override
   Row operator [](int index) {
     RangeError.checkValidIndex(index, this);
-    return Row._(_values, _schema, index * _columnCount);
+    return Row._(_values, _rowSchema, index * _columnCount);
   }
 
   @override
