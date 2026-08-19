@@ -74,9 +74,20 @@ void main() {
         }
       });
 
-      // Drain initial emission.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(values, isNotEmpty);
+      // Drain the initial emission. POLLED, not slept: 50ms was a guess about
+      // how fast a subscription delivers its first rows, and a loaded runner
+      // beats it. zonai CI run 32288856529 failed exactly here with
+      // `Expected: non-empty  Actual: []`, on a stream that was working fine --
+      // the assertion had simply been made too early. The settle loop further
+      // down already waits this way; this was the one wait in the test still
+      // written as a duration, and it was the one that flaked.
+      final firstEmitBy = DateTime.now().add(const Duration(seconds: 10));
+      while (values.isEmpty) {
+        if (DateTime.now().isAfter(firstEmitBy)) {
+          fail('stream never made its initial emission');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
       final firstEmitValue = values.first;
       expect(firstEmitValue, equals(0));
 
