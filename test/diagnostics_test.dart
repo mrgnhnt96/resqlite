@@ -15,31 +15,12 @@
 /// tend to flake. Callers of `diagnostics()` should treat those
 /// counters as informational rather than load-bearing.
 ///
-/// QUARANTINED 2026-08-14 -- `Database.diagnostics()` SEGFAULTS.
-/// si_signo=Segmentation fault: 11, si_code=SEGV_ACCERR, si_addr=0x18 -- a
-/// near-null dereference in the native layer, on the FIRST call, on a fresh
-/// db, in isolation, in under a second. It aborts the process, so it takes
-/// every other test in this package down with it: `dart test` exits 134 with
-/// no summary at all.
-///
-/// This is not a new bug and nothing here caused it. 15 of 18 test files in
-/// this package never called `setUpResqliteNative()`, so they died in
-/// `Database.open` before reaching any assertion; the package reported
-/// 55 passed / 117 failed for as long as anyone had looked. Commit 08ef516
-/// fixed that prerequisite, the tests reached the code for the first time,
-/// and this is what came out.
-///
-/// It is also why five tests in stream_test.dart are quarantined: they assert
-/// on the stream registry through `_streamLength`, which calls
-/// `diagnostics()`. Those five are collateral, not five separate bugs --
-/// there is ONE crash site and it is here.
-///
-/// Tracked as showrunner leaf `resqlite-stream-segv`. Remove this annotation
-/// to reproduce; do not delete these tests.
-@Skip(
-  'Database.diagnostics() segfaults (si_addr=0x18) and aborts the whole '
-  'package. See the doc comment above and leaf resqlite-stream-segv.',
-)
+/// These were quarantined 2026-08-14 for a SEGV (si_addr=0x18) that aborted
+/// the whole package, and un-quarantined once `resqlite_db_status_total`
+/// stopped handing NULL connection handles to `sqlite3_db_status`. There were
+/// TWO such handles, not one: the lazily-opened writer and any reader slot
+/// that had never been opened. The counters this file asserts on are exactly
+/// what walks both, which is why an entire suite hung on one native guard.
 library;
 
 import 'dart:io';

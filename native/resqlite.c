@@ -1229,7 +1229,14 @@ int resqlite_db_status_total(
     sqlite3_mutex_enter(db->writer_mutex);
     int current = 0;
     int highwater = 0;
-    int writer_rc = sqlite3_db_status(db->writer, op, &current, &highwater, reset);
+    // The writer is opened lazily as well (:637 NULLs it, ensure_writer_open fills it
+    // on demand), and nothing on this path opens one -- so a database that has not
+    // been written to yet arrives here with db->writer == NULL and faults in exactly
+    // the same place as an unopened reader does below. Skipping it reports the true
+    // total: a writer that was never opened has allocated nothing to count.
+    int writer_rc = db->writer
+        ? sqlite3_db_status(db->writer, op, &current, &highwater, reset)
+        : SQLITE_OK;
     sqlite3_mutex_leave(db->writer_mutex);
     if (writer_rc != SQLITE_OK) {
         rc = writer_rc;
@@ -1244,6 +1251,13 @@ int resqlite_db_status_total(
             if (rc == SQLITE_OK) rc = SQLITE_BUSY;
             continue;
         }
+
+        // A reader slot that was never opened still holds db == NULL (:650, and
+        // ensure_reader_open only fills it on demand). sqlite3_db_status NULL-checks
+        // only under SQLITE_ENABLE_API_ARMOR, which this build does not define, so it
+        // dereferences. An unopened reader has contributed nothing to any counter, so
+        // skipping it is the correct ANSWER and not merely a crash guard.
+        if (!db->readers[i].db) continue;
 
         current = 0;
         highwater = 0;

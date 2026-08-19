@@ -608,14 +608,6 @@ void main() {
         await probe.cancel();
         expect(await _streamLength(db), 0);
       },
-      skip:
-          'QUARANTINED 2026-08-14 -- SEGFAULTS. si_addr=0x18, a near-null deref in '
-          'the native stream-registry teardown path. It ABORTS THE PROCESS, so it '
-          'takes every other test in this package down with it (dart test exits 134 '
-          'with no summary). Not a new bug -- this file never ran at all until '
-          '08ef516 installed the native library. All five quarantined tests here '
-          'assert on the stream registry via diagnostics().streamLength. Tracked as '
-          'showrunner leaf resqlite-stream-segv. UNSKIP to reproduce; do not delete.',
     );
 
     test(
@@ -648,14 +640,6 @@ void main() {
         await probe2.cancel();
         expect(await _streamLength(db), 0);
       },
-      skip:
-          'QUARANTINED 2026-08-14 -- SEGFAULTS. si_addr=0x18, a near-null deref in '
-          'the native stream-registry teardown path. It ABORTS THE PROCESS, so it '
-          'takes every other test in this package down with it (dart test exits 134 '
-          'with no summary). Not a new bug -- this file never ran at all until '
-          '08ef516 installed the native library. All five quarantined tests here '
-          'assert on the stream registry via diagnostics().streamLength. Tracked as '
-          'showrunner leaf resqlite-stream-segv. UNSKIP to reproduce; do not delete.',
     );
 
     test(
@@ -682,14 +666,6 @@ void main() {
         expect(result, hasLength(1));
         expect(result[0]['name'], 'alice');
       },
-      skip:
-          'QUARANTINED 2026-08-14 -- SEGFAULTS. si_addr=0x18, a near-null deref in '
-          'the native stream-registry teardown path. It ABORTS THE PROCESS, so it '
-          'takes every other test in this package down with it (dart test exits 134 '
-          'with no summary). Not a new bug -- this file never ran at all until '
-          '08ef516 installed the native library. All five quarantined tests here '
-          'assert on the stream registry via diagnostics().streamLength. Tracked as '
-          'showrunner leaf resqlite-stream-segv. UNSKIP to reproduce; do not delete.',
     );
 
     test('does not re-emit after rolled-back transaction', () async {
@@ -796,14 +772,6 @@ void main() {
 
         await sub.cancel();
       },
-      skip:
-          'QUARANTINED 2026-08-14 -- SEGFAULTS. si_addr=0x18, a near-null deref in '
-          'the native stream-registry teardown path. It ABORTS THE PROCESS, so it '
-          'takes every other test in this package down with it (dart test exits 134 '
-          'with no summary). Not a new bug -- this file never ran at all until '
-          '08ef516 installed the native library. All five quarantined tests here '
-          'assert on the stream registry via diagnostics().streamLength. Tracked as '
-          'showrunner leaf resqlite-stream-segv. UNSKIP to reproduce; do not delete.',
     );
 
     test(
@@ -947,14 +915,6 @@ void main() {
 
         await sub.cancel();
       },
-      skip:
-          'QUARANTINED 2026-08-14 -- SEGFAULTS. si_addr=0x18, a near-null deref in '
-          'the native stream-registry teardown path. It ABORTS THE PROCESS, so it '
-          'takes every other test in this package down with it (dart test exits 134 '
-          'with no summary). Not a new bug -- this file never ran at all until '
-          '08ef516 installed the native library. All five quarantined tests here '
-          'assert on the stream registry via diagnostics().streamLength. Tracked as '
-          'showrunner leaf resqlite-stream-segv. UNSKIP to reproduce; do not delete.',
     );
   });
 }
