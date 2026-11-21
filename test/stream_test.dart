@@ -340,6 +340,47 @@ void main() {
       },
     );
 
+    // The interleaving behind the CI flake on the test above, forced instead
+    // of hoped for: the write's invalidation reaches the stream while its
+    // initial query is still in flight, and that query's snapshot already
+    // includes the write. The engine then discards the initial rows as
+    // possibly stale and re-queries -- and the re-query used to compare
+    // against the hash of those never-emitted rows, find "no change", and
+    // stay silent forever.
+    test(
+      'emits its first result when a write lands during the initial query',
+      () async {
+        // Hold every reader (the pool has at most 4) so the stream's initial
+        // query parks behind them. Each one only has to outlast registering
+        // the stream and committing one row.
+        const slowSql =
+            'WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c '
+            'WHERE x < 3000000) SELECT count(*) AS n FROM c';
+        final slowReads = [for (var i = 0; i < 4; i++) db.select(slowSql)];
+
+        final probe = _StreamProbe(
+          db.stream('SELECT COUNT(*) as cnt FROM items'),
+        );
+        while (await _streamLength(db) != 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+
+        await db.execute('INSERT INTO items(name, value) VALUES (?, ?)', [
+          'a',
+          1,
+        ]);
+        await Future.wait(slowReads);
+
+        final firstRows = await probe.event(
+          1,
+          timeout: const Duration(seconds: 10),
+        );
+        expect(firstRows[0]['cnt'], 1);
+
+        await probe.cancel();
+      },
+    );
+
     test('re-emits after transaction', () async {
       final probe = _StreamProbe(
         db.stream('SELECT COUNT(*) as cnt FROM items'),

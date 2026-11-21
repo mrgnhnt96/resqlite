@@ -234,6 +234,12 @@ final class StreamEngine {
       try {
         final result = await _pool.selectWithDeps(sql, params);
 
+        // Cleared here, not in a `finally`: the dirty path below starts the
+        // follow-up re-query, which sets `inFlight` again, and a `finally`
+        // running after it would clear the flag while that re-query is still
+        // out — letting the next invalidation queue a second, concurrent one.
+        entry.inFlight = false;
+
         // Cancelled before query finished.
         if (entry.subscribers.isEmpty) {
           return;
@@ -241,10 +247,6 @@ final class StreamEngine {
 
         final (initialRows, dependencies, initialHash, initialRowCount) =
             result;
-
-        entry.lastResult = initialRows;
-        entry.lastResultHash = initialHash;
-        entry.lastRowCount = initialRowCount;
 
         if (dependencies case FixedTableDependencies(tables: final tables)) {
           _unknownDepsEntries.remove(entry);
@@ -259,18 +261,26 @@ final class StreamEngine {
 
         // If an invalidation occurred while performing the entry's initial query then the entry
         // needs to be re-queried since its dependencies were not known at the time and this result could be stale.
+        //
+        // The discarded rows must not become the change-detection baseline.
+        // Nothing has been emitted yet, and when the initial query's snapshot
+        // already included the write, the re-query would hash identically,
+        // report "unchanged", and the stream would never emit at all. Leaving
+        // the baseline unset (row count -1) makes the re-query always emit.
         if (entry.dirty) {
           _requeryQueue.add(entry);
           _flushQueue();
         } else {
+          entry.lastResult = initialRows;
+          entry.lastResultHash = initialHash;
+          entry.lastRowCount = initialRowCount;
           entry.emit(initialRows);
         }
       } catch (e, stackTrace) {
+        entry.inFlight = false;
         // Propagate error to all subscribers so they don't hang.
         entry.emitError(e, stackTrace);
         _remove(entry);
-      } finally {
-        entry.inFlight = false;
       }
     });
 
